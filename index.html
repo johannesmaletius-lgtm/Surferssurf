@@ -2386,6 +2386,7 @@ function effSurferId() {
 /* ---------- Farbstimmung je Welt (16 Bit, Nacht & Glühen) ---------- */
 const LOOK = {
   tropen: {
+    outer: '#021826', rope: '#8ff8f2', buoy: '#ff5a4a',
     ambient: '#1a4a7a',
     sky: ['#040a22', '#081430', '#0c1d40', '#112a54', '#173a68', '#1f4e7e'], stars: true, moon: { x: .3, y: .55, r: 9, c: ['#9fc4d8', '#dff3f8', '#ffffff'] }, glow: '#2d6a96',
     cloud: ['#08142e', '#102650', '#1c3d6c', '#2d5a8a'],
@@ -2395,6 +2396,7 @@ const LOOK = {
     rock: ['#060e1e', '#101e36', '#1d3352', '#33547a', '#5e86ac'], cap: ['#0e4a4a', '#1a7a6a', '#3ac0a0'], wave: ['#042e44', '#08506a', '#0f7c94', '#24b4c4', '#7ff4ec'], waveFoam: '#e8fffd',
   },
   canyon: {
+    outer: '#082a48', rope: '#ffe6b0', buoy: '#ff7a3a',
     ambient: '#c0506a',
     sky: ['#24163e', '#40205a', '#7a2c62', '#c04a62', '#ea7a56', '#ffb468'], sun: { x: .76, y: .78, r: 12, c: ['#ff7a3a', '#ffb868', '#fff0b0'] }, glow: '#ff9a5a',
     cloud: ['#4a1e4e', '#8a3a62', '#d06a6a', '#ffaa80'],
@@ -2404,6 +2406,7 @@ const LOOK = {
     rock: ['#2e0e0a', '#5a1e14', '#923622', '#cc6038', '#f29a6a'], wave: ['#0a4a58', '#127080', '#2494a0', '#74ccc4', '#ffe4b8'], waveFoam: '#fff6e8',
   },
   stadt: {
+    outer: '#062e28', rope: '#fff0c0', buoy: '#d8342a',
     ambient: '#ffb070',
     sky: ['#3a7cd0', '#5a96dc', '#86b4e4', '#bccce0', '#f0c890', '#ffaa6a'], sun: { x: .74, y: .74, r: 10, c: ['#ff8a3a', '#ffd080', '#fff4c0'] }, glow: '#ffc070',
     cloud: ['#c87a6a', '#e8a08a', '#ffd0b0', '#fff0e0'],
@@ -2413,6 +2416,7 @@ const LOOK = {
     rock: ['#2a2018', '#4a3a2a', '#7a6248', '#a88a68', '#d8bc94'], wave: ['#13574e', '#1c7468', '#3aa08e', '#8ad8c4', '#f0fff8'], waveFoam: '#ffffff',
   },
   eis: {
+    outer: '#020e26', rope: '#ffffff', buoy: '#ff4a3a',
     ambient: '#a8c8f0',
     sky: ['#2f6cc0', '#4e8ad2', '#78aae2', '#a6caee', '#d2e6f8', '#f4faff'], sun: { x: .22, y: .62, r: 8, c: ['#fff6d8', '#ffffff', '#ffffff'] }, glow: '#ffffff',
     cloud: ['#a8c4e0', '#d0e2f2', '#f2f8ff', '#ffffff'],
@@ -2422,6 +2426,7 @@ const LOOK = {
     rock: ['#2a5a90', '#4a86c0', '#86bce4', '#c4e4f8', '#ffffff'], wave: ['#0a2a52', '#123c6c', '#2a6aa4', '#8ac4ec', '#ffffff'], waveFoam: '#ffffff', fx: 'snow',
   },
   lava: {
+    outer: '#3a0602', rope: '#ffe07a', buoy: '#1a1014',
     ambient: '#c02a10',
     sky: ['#06030a', '#140610', '#280a14', '#46101a', '#6e1a1a', '#9a2e18'], glow: '#ff5a1a',
     cloud: ['#140a10', '#2a1218', '#4a1e1e', '#7a2e1e'],
@@ -2431,6 +2436,7 @@ const LOOK = {
     rock: ['#040206', '#120c12', '#22181e', '#38282e', '#5a4448'], wave: ['#4a0e06', '#8a1e08', '#d2420e', '#ff8a2a', '#ffe07a'], waveFoam: '#fff0a0', fx: 'embers',
   },
   tief: {
+    outer: '#02160f', rope: '#c0ffe8', buoy: '#c050c0',
     ambient: '#0f6a52',
     sky: ['#02140f', '#05241c', '#0a3a2c', '#0f5040', '#156a52', '#1c8466'], rays: '#7affc8', glow: '#3affb0',
     cloud: null,
@@ -2910,12 +2916,13 @@ function drawBirds(hy) {
 }
 
 /* ---------- Wasser: Zeile für Zeile, Streifen fliegen auf die Kamera zu ---------- */
+const PLAY_EDGE = 3.95;
 function wallCrest(z, side) { return 1.3 + .55 * Math.sin(z * .11 + side * 1.3 + T * .5) + .3 * Math.sin(z * .37 + side); }
 function drawWater() {
   const LK = WL(), W = V.W, H = V.H, f = V.f, cx = V.cx, hy = Math.round(V.hy);
   const sm = LK.moon || LK.sun, pathX = sm ? Math.round(W * sm.x - V.camX * .3) : -1;
   const wave = LK.shore === 'wave';
-  let prevBand = null, prevPath = null;
+  let prevBand = null, prevPath = null, prevFloat = null;
   for (let y = hy + 1; y < H; y++) {
     const dy = y + .5 - V.hy; if (dy <= 0) continue;
     const zc = V.camY * f / dy, wz = V.camZ + zc, k = f / zc;
@@ -2934,6 +2941,13 @@ function drawWater() {
     prevBand = band;
     // Mond-/Sonnenspiegelung
     if (pathX >= 0) { const pw = 1.5 + (y - hy) * .1; const pb2 = Math.floor(wz * 2.5), hsh = hash2(pb2, 7); if (hsh < .4 && pb2 !== prevPath && zc > 6) { prevPath = pb2; const ox = Math.round((hash2(pb2, 9) - .5) * pw * 1.6); ctx.fillStyle = hsh < .1 ? LK.path[0] : LK.path[1]; ctx.fillRect(pathX + ox - Math.round(pw * .25), y, Math.max(1, Math.round(pw * (.25 + hsh))), 1); } }
+    // Spielbereich: außerhalb dunkleres Wasser, am Rand eine Schwimmleine mit Bojen
+    { const ea = Math.round(cx + (-PLAY_EDGE - V.camX) * k), eb = Math.round(cx + (PLAY_EDGE - V.camX) * k);
+      ctx.fillStyle = ditherPat(LK.outer || '#000814', zc > 60 ? 2 : 1); if (ea > 0) ctx.fillRect(0, y, ea, 1); if (eb < W) ctx.fillRect(eb, y, W - eb, 1);
+      const rw = Math.max(1, Math.round(.06 * k)); ctx.fillStyle = LK.rope || LK.foam[1]; ctx.fillRect(ea - rw, y, rw, 1); ctx.fillRect(eb, y, rw, 1);
+      const fb = Math.floor(wz / 2.5);
+      if (fb !== prevFloat && zc < 120) { prevFloat = fb; const fs = clamp(Math.round(.28 * k), 1, 4), c = fb % 2 ? (LK.buoy || '#ff5a4a') : '#ffffff'; for (const e of [ea - rw / 2, eb + rw / 2]) { ctx.fillStyle = OUT; ctx.fillRect(Math.round(e - fs / 2) - 1, y - fs, fs + 2, fs + 1); ctx.fillStyle = c; ctx.fillRect(Math.round(e - fs / 2), y - fs + 1, fs, fs - 1 || 1); if (fs > 2) { ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(e - fs / 2), y - fs + 1, 1, 1); } } }
+    }
     // Spurmarkierung
     if (zc < 70 && (Math.floor(wz / 2) % 3 === 0)) { const lw = Math.max(1, Math.round(.07 * k)); ctx.fillStyle = LK.lane; for (const lx of [-1.25, 1.25]) ctx.fillRect(Math.round(cx + (lx - V.camX) * k - lw / 2), y, lw, 1); }
     // Ufer
