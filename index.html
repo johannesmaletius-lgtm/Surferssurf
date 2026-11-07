@@ -10,7 +10,7 @@
 <link rel="icon" id="favIcon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap">
 <style>
 :root{
   --ink:#0d2a4a;
@@ -24,9 +24,8 @@
   --coral:#ff6a4d;
   --leaf:#2f9e57;
   --pill:rgba(8,20,36,.78);
-  --display:"Pixelify Sans","Trebuchet MS",system-ui,sans-serif;
-  --ui:"Pixelify Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;
-  --pixel:"Press Start 2P","Pixelify Sans",monospace;
+  --display:"Luckiest Guy","Arial Black","Trebuchet MS",Impact,sans-serif;
+  --ui:"Fredoka","Trebuchet MS","Segoe UI",system-ui,sans-serif;
   --outline:0 3px 0 var(--ink),2px 2px 0 var(--ink),-2px 2px 0 var(--ink),2px -2px 0 var(--ink),-2px -2px 0 var(--ink),0 -2px 0 var(--ink),2px 0 0 var(--ink),-2px 0 0 var(--ink);
   color-scheme:light;
 }
@@ -38,41 +37,10 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 [hidden]{display:none!important}
 #game{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none}
 #hud{contain:layout style}
-#game{image-rendering:crisp-edges;image-rendering:pixelated;right:auto;bottom:auto}
-img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
-.btn,.pill,.panel,.card,.toggle,.pause-btn,.tabs button,.stat,.chal-box,.help-list li,kbd,.toast,.danger,.newrec,.card .tag,.card .req,.card .prev,#shareText,.pips i,.chal li i,.chal .bar,.chal .bar em,#loading .bar,.toggle b,.world-pill,.pause-btn i{border-radius:0!important}
-.btn,.pause-btn,.panel,.card,.tabs button{clip-path:polygon(0 4px,4px 4px,4px 0,calc(100% - 4px) 0,calc(100% - 4px) 4px,100% 4px,100% calc(100% - 4px),calc(100% - 4px) calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,4px calc(100% - 4px),0 calc(100% - 4px))}
-.btn,.pause-btn,.tabs button,.card{box-shadow:inset 0 -6px 0 rgba(0,0,0,.28),inset 0 4px 0 rgba(255,255,255,.4)!important;border-width:4px}
-.btn:active,.pause-btn:active{transform:translateY(3px);box-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 4px 0 rgba(255,255,255,.4)!important}
-.panel{box-shadow:inset 0 0 0 4px #fff,inset 0 -10px 0 rgba(13,42,74,.12)!important;background:var(--paper)}
-.pill{box-shadow:inset 0 0 0 2px rgba(255,255,255,.18),0 3px 0 rgba(0,0,0,.35)}
-.btn,.hint,.world-title,.panel h2,#loading{letter-spacing:.02em}
-.panel h2,.result-title,.btn-play{font-family:var(--pixel)!important;font-weight:400!important;line-height:1.25!important}
-.panel h2{font-size:clamp(20px,3.2vmax,30px)!important}
-.result-title{font-size:clamp(24px,4.2vmax,40px)!important}
-.btn-play{font-size:clamp(20px,3.4vmax,32px)!important;padding:.7em 1.3em .55em!important}
-.world-title{font-family:var(--pixel);font-weight:400;font-size:clamp(20px,3.6vmax,38px);line-height:1.3}
-.hint{font-family:var(--pixel);font-weight:400;font-size:clamp(18px,3.2vmax,32px);line-height:1.3}
-#loading{font:400 18px/1.4 var(--pixel)}
-#loading .bar{height:16px;border-width:3px}
-#loading .bar i{background:repeating-linear-gradient(90deg,#ffe066 0 8px,#ffae20 8px 16px);transition:none}
-.pw{border-radius:0!important;background:conic-gradient(var(--c) calc(var(--p) * 360deg),rgba(255,255,255,.16) 0);clip-path:polygon(0 4px,4px 4px,4px 0,calc(100% - 4px) 0,calc(100% - 4px) 4px,100% 4px,100% calc(100% - 4px),calc(100% - 4px) calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,4px calc(100% - 4px),0 calc(100% - 4px))}
-.pw img{border-radius:0!important}
-.revive-ring,.revive-ring div{border-radius:0!important}
-.revive-ring div{font-family:var(--pixel)!important;font-weight:400!important;font-size:34px!important}
-.newrec{font-family:var(--pixel)!important;font-weight:400!important;font-size:13px!important;line-height:1.4!important}
-.logo{image-rendering:pixelated;filter:drop-shadow(0 6px 0 rgba(13,42,74,.35))}
-.menu-row .btn-icon,.btn-icon{padding:0!important}
-.btn-small{white-space:nowrap}
-.shop-head{gap:8px}
-.shop-head h2{font-size:clamp(16px,2.6vmax,26px)!important;min-width:0}
-.shop-head .btn-small{padding:.55em .6em .42em}
-.shop-head .pill{flex:none;font-size:clamp(14px,2.2vmax,22px);min-width:0}
-@media (max-width:460px){.shop-head h2{display:none}.shop-head{justify-content:space-between}}
 
 /* ---------- Ladebildschirm ---------- */
 #loading{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  background:linear-gradient(#040a22,#0c1d40 60%,#0a4a68);font:700 28px/1 var(--display);letter-spacing:.04em;text-shadow:var(--outline)}
+  background:linear-gradient(#040a22,#0c1d40 60%,#0a4a68);font:400 28px/1 var(--display);letter-spacing:.04em;text-shadow:var(--outline)}
 #loading .bar{width:min(260px,70vw);height:14px;border-radius:10px;border:3px solid var(--ink);background:#0d3b5e;overflow:hidden}
 #loading .bar i{display:block;height:100%;width:0;background:linear-gradient(#ffe066,#ffae20);transition:width .2s}
 
@@ -85,7 +53,7 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
   font:700 clamp(17px,2.8vmax,27px)/1 var(--ui);font-variant-numeric:tabular-nums;
   min-width:5.2em;white-space:nowrap}
 .pill .ico{width:1.4em;height:1.4em;flex:none;display:block}
-.pill .x2{font:700 .78em/1 var(--display);color:var(--gold);margin-left:auto;padding-left:.3em}
+.pill .x2{font:400 .78em/1 var(--display);color:var(--gold);margin-left:auto;padding-left:.3em}
 .bump{animation:bump .22s ease}
 @keyframes bump{45%{transform:scale(1.13)}}
 .pause-btn{pointer-events:auto;width:clamp(42px,6vmax,56px);aspect-ratio:1;border-radius:13px;
@@ -102,10 +70,10 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
 .pw.low{animation:blink .4s steps(2) infinite}
 @keyframes blink{50%{opacity:.45}}
 .danger{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 118px);white-space:nowrap;transform:translateX(-50%);
-  font:700 clamp(16px,2.4vmax,22px)/1 var(--display);letter-spacing:.05em;color:#ffd9d0;
+  font:400 clamp(16px,2.4vmax,22px)/1 var(--display);letter-spacing:.05em;color:#ffd9d0;
   background:rgba(170,30,20,.72);padding:.45em .9em .35em;border-radius:12px;border:2px solid rgba(255,255,255,.35)}
 .hint{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);text-align:center;width:min(92vw,560px);
-  font:700 clamp(26px,5.4vmax,52px)/1.05 var(--display);letter-spacing:.03em;text-shadow:var(--outline);
+  font:400 clamp(26px,5.4vmax,52px)/1.05 var(--display);letter-spacing:.03em;text-shadow:var(--outline);
   animation:hintIn .35s cubic-bezier(.2,1.6,.4,1)}
 .hint small{display:block;margin-top:.45em;font:600 clamp(15px,2.2vmax,21px)/1.25 var(--ui);letter-spacing:0;
   text-shadow:0 2px 0 var(--ink),0 0 10px rgba(13,42,74,.8)}
@@ -114,7 +82,7 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
 .turbo-offer{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);pointer-events:auto}
 
 /* ---------- Buttons ---------- */
-.btn{font:700 clamp(19px,3vmax,28px)/1 var(--display);letter-spacing:.03em;padding:.55em 1.05em .42em;border-radius:16px;
+.btn{font:400 clamp(19px,3vmax,28px)/1 var(--display);letter-spacing:.03em;padding:.55em 1.05em .42em;border-radius:16px;
   border:3px solid var(--ink);box-shadow:0 5px 0 var(--ink);color:#fff;text-shadow:var(--outline);
   display:inline-flex;align-items:center;justify-content:center;gap:.4em;transition:transform .08s,box-shadow .08s,filter .15s}
 .btn:hover{filter:brightness(1.07)}
@@ -175,11 +143,11 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
 .exp-pill{background:rgba(170,70,20,.72)}
 .exp-pill:hover{background:rgba(170,70,20,.88)}
 .world-title{position:absolute;left:50%;top:17%;transform:translateX(-50%);text-align:center;width:min(92vw,640px);pointer-events:none;
-  font:700 clamp(32px,6vmax,62px)/1 var(--display);letter-spacing:.03em;text-shadow:var(--outline);animation:wtitle 2.8s ease forwards}
+  font:400 clamp(32px,6vmax,62px)/1 var(--display);letter-spacing:.03em;text-shadow:var(--outline);animation:wtitle 2.8s ease forwards}
 .world-title small{display:block;margin-top:.5em;font:600 clamp(14px,2vmax,19px)/1.3 var(--ui);letter-spacing:0;text-shadow:0 2px 0 var(--ink),0 0 10px rgba(13,42,74,.8)}
 @keyframes wtitle{0%{opacity:0;transform:translate(-50%,12px) scale(.9)}12%,72%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-12px)}}
 .chal-box{background:#fff;border:3px solid var(--ink);border-radius:16px;padding:10px 12px;margin:0 0 14px;color:var(--ink);text-align:left}
-.chal-box h4{margin:0 0 8px;font:700 17px/1.15 var(--display);letter-spacing:.03em}
+.chal-box h4{margin:0 0 8px;font:400 17px/1.15 var(--display);letter-spacing:.03em}
 .chal-box p{font:500 14px/1.35 var(--ui)!important;color:var(--ink-soft)}
 .chal{list-style:none;margin:0;padding:0;display:grid;gap:7px}
 .chal li{display:grid;grid-template-columns:22px 1fr auto;gap:4px 8px;align-items:center;font:500 14px/1.25 var(--ui)}
@@ -200,24 +168,24 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
   box-shadow:0 8px 0 var(--ink),0 24px 60px rgba(0,20,40,.45);padding:18px 20px 22px;width:min(480px,100%);
   max-height:100%;overflow:auto;animation:pop .32s cubic-bezier(.2,1.5,.4,1)}
 @keyframes pop{from{transform:scale(.85);opacity:0}}
-.panel h2{font:700 clamp(32px,5vmax,46px)/1 var(--display);margin:4px 0 14px;color:#fff;text-shadow:var(--outline);
+.panel h2{font:400 clamp(32px,5vmax,46px)/1 var(--display);margin:4px 0 14px;color:#fff;text-shadow:var(--outline);
   letter-spacing:.03em;text-align:center;text-wrap:balance}
 .panel .stack{display:flex;flex-direction:column;gap:12px;align-items:stretch}
 .panel p{margin:0;font:500 16px/1.4 var(--ui)}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:14px;
   background:#fff;border:3px solid var(--ink);font:600 18px/1.2 var(--ui);color:var(--ink);text-align:left}
-.toggle b{font:700 16px/1 var(--display);letter-spacing:.04em;padding:.45em .7em .35em;border-radius:10px;
+.toggle b{font:400 16px/1 var(--display);letter-spacing:.04em;padding:.45em .7em .35em;border-radius:10px;
   background:#c9d6e2;color:#fff;text-shadow:0 2px 0 var(--ink);border:2px solid var(--ink);min-width:4.2em;text-align:center}
 .toggle[aria-pressed="true"] b{background:var(--leaf)}
 
 /* Ergebnis */
-.result-title{font:700 clamp(40px,7vmax,64px)/1 var(--display)!important}
+.result-title{font:400 clamp(40px,7vmax,64px)/1 var(--display)!important}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 16px}
 .stat{background:#fff;border:3px solid var(--ink);border-radius:16px;padding:10px 12px;text-align:center}
 .stat span{display:block;font:600 13px/1.1 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft)}
 .stat b{display:block;font:700 clamp(24px,4vmax,32px)/1.15 var(--ui);font-variant-numeric:tabular-nums;margin-top:4px}
 .stat.wide{grid-column:1/-1}
-.newrec{display:inline-block;font:700 18px/1 var(--display);letter-spacing:.05em;color:#fff;background:var(--coral);
+.newrec{display:inline-block;font:400 18px/1 var(--display);letter-spacing:.05em;color:#fff;background:var(--coral);
   padding:.45em .8em .35em;border-radius:10px;border:2px solid var(--ink);transform:rotate(-3deg);text-shadow:0 2px 0 var(--ink);
   animation:wobble 1.2s ease-in-out infinite}
 @keyframes wobble{50%{transform:rotate(3deg) scale(1.06)}}
@@ -226,7 +194,7 @@ img,canvas{image-rendering:crisp-edges;image-rendering:pixelated}
 .revive-ring{--p:1;width:128px;aspect-ratio:1;border-radius:50%;margin:0 auto 14px;display:grid;place-items:center;
   background:conic-gradient(var(--coral) calc(var(--p) * 360deg),#e7dcc6 0);border:4px solid var(--ink)}
 .revive-ring div{width:84%;aspect-ratio:1;border-radius:50%;background:var(--paper);border:3px solid var(--ink);display:grid;place-items:center;
-  font:700 44px/1 var(--display);color:var(--ink)}
+  font:400 44px/1 var(--display);color:var(--ink)}
 
 /* Hilfe */
 #shareText{width:100%;resize:none;font:600 16px/1.4 var(--ui);color:var(--ink);background:#fff;border:3px solid var(--ink);border-radius:14px;padding:10px 12px;-webkit-user-select:text;user-select:text}
@@ -249,7 +217,7 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
 .shop-head h2{margin:0;flex:1}
 .shop-head .pill{min-width:0;color:#fff}
 .tabs{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none}
-.tabs button{flex:1 0 auto;font:700 clamp(15px,2vmax,19px)/1 var(--display);letter-spacing:.04em;padding:.62em 1em .5em;border-radius:12px;
+.tabs button{flex:1 0 auto;font:400 clamp(15px,2vmax,19px)/1 var(--display);letter-spacing:.04em;padding:.62em 1em .5em;border-radius:12px;
   border:3px solid var(--ink);background:#fff;color:var(--ink);box-shadow:0 3px 0 var(--ink)}
 .tabs button[aria-selected="true"]{background:var(--sea);color:#fff;text-shadow:0 2px 0 var(--ink)}
 .shop-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;
@@ -259,9 +227,9 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
 .card.equipped{background:#fff4d2}
 .card .prev{width:100%;aspect-ratio:3/2;border-radius:12px;display:block;background:linear-gradient(#0c1d40 0 55%,#0a4a68 55%);border:2px solid rgba(13,42,74,.25)}
 .card .prev.icon{object-fit:contain;padding:10px}
-.card h3{font:700 19px/1.05 var(--display);letter-spacing:.03em;margin:2px 0 0}
+.card h3{font:400 19px/1.05 var(--display);letter-spacing:.03em;margin:2px 0 0}
 .card p{font:500 13px/1.3 var(--ui);color:var(--ink-soft);margin:0;flex:1}
-.card .tag{position:absolute;top:14px;left:14px;font:700 12px/1 var(--display);letter-spacing:.06em;background:var(--leaf);color:#fff;
+.card .tag{position:absolute;top:14px;left:14px;font:400 12px/1 var(--display);letter-spacing:.06em;background:var(--leaf);color:#fff;
   padding:.45em .6em .35em;border-radius:8px;border:2px solid var(--ink);text-shadow:0 1px 0 var(--ink)}
 .card .btn{width:100%;font-size:17px;padding:.55em .6em .42em}
 .pips{display:flex;gap:4px}
@@ -300,10 +268,12 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition:none!important}
 }
+.menu-row .btn-icon{padding:0!important}
+@media (max-width:460px){.shop-head h2{display:none}.shop-head .btn-small{padding:.55em .6em .42em}.shop-head .pill{font-size:16px}}
 </style>
 <canvas id="game" tabindex="0" aria-label="Surfers Surf Spielfläche"></canvas>
 
-<div id="loading"><div>Wachse das Brett…</div><div class="bar"><i id="loadBar"></i></div></div>
+<div id="loading"><div>Wachse das Brett …</div><div class="bar"><i id="loadBar"></i></div></div>
 
 <!-- HUD -->
 <div id="hud" hidden>
@@ -322,7 +292,22 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
 <!-- Menü -->
 <div id="menu" class="screen menu" hidden>
   <div class="menu-top">
-    <canvas class="logo" id="logoCv" width="174" height="84" role="img" aria-label="Surfers Surf"></canvas>
+    <svg class="logo" viewBox="0 0 520 250" role="img" aria-label="Surfers Surf">
+      <defs>
+        <linearGradient id="lgCream" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffef6"/><stop offset=".55" stop-color="#fff0c8"/><stop offset="1" stop-color="#f2c96f"/></linearGradient>
+        <linearGradient id="lgBlue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a4f0ff"/><stop offset=".45" stop-color="#34b8f0"/><stop offset="1" stop-color="#1562c6"/></linearGradient>
+        <linearGradient id="lgWave" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fc6f2"/><stop offset=".6" stop-color="#1b8fd6"/><stop offset="1" stop-color="#0f5fae"/></linearGradient>
+      </defs>
+      <g transform="rotate(-6 260 125)">
+        <path d="M22 212C96 164 190 246 300 196c62-28 92-86 70-120 60 6 110 64 92 124-16 52-92 60-176 50-94-11-168-4-264-38z" fill="url(#lgWave)" stroke="#0d2a4a" stroke-width="8" stroke-linejoin="round"/>
+        <path d="M370 76c44-2 84 34 78 84-10-26-30-40-56-38 16-16 8-38-22-46z" fill="#fff" stroke="#0d2a4a" stroke-width="6" stroke-linejoin="round"/>
+        <path d="M60 222c60-18 120 10 190 2" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".85"/>
+        <text x="36" y="118" class="lg1 sh" transform="translate(0 8)">SURFERS</text>
+        <text x="36" y="118" class="lg1">SURFERS</text>
+        <text x="112" y="212" class="lg2 sh" transform="translate(0 8)">SURF</text>
+        <text x="112" y="212" class="lg2">SURF</text>
+      </g>
+    </svg>
     <div class="menu-stats">
       <div class="pill"><span class="lbl">Rekord</span> <span id="menuBest">0 m</span></div>
       <div class="pill"><img class="ico coin-src" alt="Münzen"><span id="menuCoins">0</span></div>
@@ -710,7 +695,7 @@ const hash2 = (a, b) => { let h = Math.imul(a | 0, 374761393) + Math.imul(b | 0,
 const lp2 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
 function rampPick(r, v, x, y) {
   const n = r.length, lv = (v < 0 ? 0 : v > 1 ? 1 : v) * (n - 1); let i = Math.floor(lv); const f = lv - i;
-  if (f > .66) i++; else if (f > .34 && ((x + y) & 1)) i++;
+  if (f > .5) i++;
   return r[i > n - 1 ? n - 1 : i];
 }
 class Pix {
@@ -1230,7 +1215,7 @@ function genRuin(seed) {
 function genJelly(col, ph) {
   const p = new Pix(18, 26), c = C(col), l = C(tone(col, .5));
   for (let k = 0; k < 4; k++) { let x = 4 + k * 3.3; for (let y = 9; y < 25; y++) { x += Math.sin(y * .5 + ph + k) * .5; if (y % 2 === 0 || k % 2) p.set(x, y, c); } }
-  p.ell(9, 8, 8 * (1 + Math.sin(ph) * .08), 6, (x, y, nx, ny) => ny > .2 ? 0 : (nx * nx + ny * ny > .7 ? c : (x + y) % 2 ? l : C('#ffffff')));
+  p.ell(9, 8, 8 * (1 + Math.sin(ph) * .08), 6, (x, y, nx, ny) => ny > .2 ? 0 : (nx * nx + ny * ny > .7 ? c : ny < -.4 ? C('#ffffff') : l));
   p.outline(C(tone(col, -.6)));
   return p.canvas();
 }
@@ -1243,6 +1228,23 @@ function genKite() {
   return p.canvas();
 }
 
+/* ---------- Glätten: Scale2x (zweimal) macht aus Pixelkanten weiche, saubere Rundungen ---------- */
+const SM = 4;
+function scale2x(src) {
+  const w = src.width, h = src.height, s = new Uint32Array(src.getContext('2d').getImageData(0, 0, w, h).data.buffer);
+  const W2 = w * 2, out = document.createElement('canvas'); out.width = W2; out.height = h * 2;
+  const x = out.getContext('2d'), od = x.createImageData(W2, h * 2), o = new Uint32Array(od.data.buffer);
+  const g = (i, j) => (i < 0 || j < 0 || i >= w || j >= h) ? 0 : s[j * w + i];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const P = s[j * w + i], A = g(i, j - 1), B = g(i + 1, j), L = g(i - 1, j), D = g(i, j + 1);
+    let e0 = P, e1 = P, e2 = P, e3 = P;
+    if (L === A && L !== D && A !== B) e0 = A; if (A === B && A !== L && B !== D) e1 = B; if (D === L && D !== B && L !== A) e2 = L; if (B === D && B !== A && D !== L) e3 = D;
+    const r = j * 2 * W2 + i * 2; o[r] = e0; o[r + 1] = e1; o[r + W2] = e2; o[r + W2 + 1] = e3;
+  }
+  x.putImageData(od, 0, 0); return out;
+}
+const smooth4 = c => scale2x(scale2x(c));
+function smoothAll(obj) { for (const k in obj) { const v = obj[k]; if (v instanceof HTMLCanvasElement) obj[k] = smooth4(v); else if (v && typeof v === 'object') smoothAll(v); } }
 function buildSprites(progress) {
   const steps = [
     () => { SPR.coin = []; for (let i = 0; i < 8; i++) SPR.coin.push(genCoin(i / 8 * TAU)); SPR.icon = {}; for (const k of ['magnet', 'shield', 'kite', 'double', 'ring', 'turbo', 'wave']) SPR.icon[k] = genIcon(k); SPR.pow = {}; for (const k of ['magnet', 'shield', 'kite', 'double']) SPR.pow[k] = genPowBubble(k); SPR.kite = genKite(); },
@@ -1250,6 +1252,7 @@ function buildSprites(progress) {
     () => { SPR.dolphin = fishFrames('dolphin'); SPR.logS = genLog(2.6); SPR.logL = genLog(7.8); },
     () => { buildWorld('tropen'); },
     () => { const w = getWorld(save.world); if (w.id !== 'tropen') buildWorld(w.id); },
+    () => { smoothAll(SPR); },
   ];
   return steps.reduce((p, fn, i) => p.then(() => new Promise(res => setTimeout(() => { fn(); progress((i + 1) / steps.length); res(); }, 0))), Promise.resolve());
 }
@@ -1706,7 +1709,7 @@ function computePose(t) {
     pz.armR = { a: 1.4 + Math.sin(wd + PI) * 1.3 * q, e: .3 + Math.cos(wd * .5) * .4 * q, f: 0 };
     pz.headTilt += -w * .4; pz.emote = hard ? '!!' : '!';
     if (hard) { pz.hipShift -= P.stumbleDir * .1 * q; pz.tilt -= P.stumbleDir * .3 * q; pz.boardYaw += P.stumbleDir * .38 * q; if (ph > .35) pz.emote = 'dizzy'; }
-  } else if (run.time - P.lastHard < 5 && state === 'play') { pz.tilt += Math.sin(t * 9) * .06; pz.boardRoll += Math.sin(t * 9 + 1) * .05; }
+  }
   if (P.flinch > 0) {
     const q = P.flinch / .38, w = Math.sin((1 - q) * PI);
     pz.tilt -= P.flinchDir * .25 * w; pz.headTilt -= P.flinchDir * .3 * w;
@@ -1904,9 +1907,7 @@ function passedObstacle(o) {
 }
 function nearMiss(o) {
   run.near++; chalEvent('near');
-  P.stumble = P.stumbleDur = .7; P.stumbleKind = 'light';
   P.stumbleDir = Math.sign(o.x - P.x) || (chance(.5) ? 1 : -1);
-  popup(pick(['Knapp!', 'Uff!', 'Haarscharf!', 'Puh!', 'Wackelig!']), '#ffe14d');
   sfx('near');
   for (let i = 0; i < 12; i++) addPart('drop', P.x + P.stumbleDir * .4, .05, P.z, -P.stumbleDir * rand(1, 3.5), rand(1.5, 3.5), P.speed * rand(.6, .9), rand(.35, .6), rand(.07, .12), '#ffffff');
 }
@@ -2509,6 +2510,7 @@ function buildWorld(id) {
   for (const key of ['rockBig', 'rockSmall', 'rockSide', 'cliff', 'palm', 'isle', 'houses', 'bush', 'coral', 'ruin', 'kelp']) if (S[key]) S[key].forEach(c => rimCanvas(c, rim, .5));
   for (const key of ['hut', 'critter', 'gondola', 'buoy', 'logS', 'logL']) if (S[key]) rimCanvas(S[key], rim, .5);
   if (S.palm) S.palmF = S.palm.map(flipX); if (S.hut) S.hutF = flipX(S.hut);
+  smoothAll(S);
   WS[id] = S;
   return S;
 }
@@ -2685,12 +2687,12 @@ for (let i = 0; i < 90; i++) FX.stars.push({ u: Math.random(), v: Math.pow(Math.
 /* ---------- Vorschaubild einer Welt (Shop) ---------- */
 function drawWorldThumb(c, w) {
   const S = buildWorld(w.id), LK = LOOK[w.id], W = 150, H = 83, hy = 34;
-  const t = mk(W, H, x => {
+  const t = mk(W * 2, H * 2, x => { x.scale(2, 2); x.imageSmoothingEnabled = true;
     const n = LK.sky.length; for (let i = 0; i < n; i++) { x.fillStyle = LK.sky[i]; x.fillRect(0, Math.floor(i * hy / n), W, Math.ceil(hy / n) + 1); }
     if (LK.stars) { x.fillStyle = '#ffffff'; for (let i = 0; i < 30; i++) x.fillRect(Math.floor(hash2(i, 3) * W), Math.floor(hash2(i, 7) * hy * .8), 1, 1); }
     const sm = LK.moon || LK.sun; if (sm) { x.fillStyle = sm.c[1]; for (let yy = -5; yy <= 5; yy++) { const ww = Math.round(Math.sqrt(25 - yy * yy)); x.fillRect(Math.round(W * sm.x) - ww, Math.round(hy * sm.y) + yy, ww * 2, 1); } }
     if (LK.aurora) LK.aurora.forEach((col, i) => { x.fillStyle = col; for (let xx = 0; xx < W; xx += 2) x.fillRect(xx, Math.round(8 + i * 4 + Math.sin(xx * .08 + i) * 4), 1, 3); });
-    S.strips.forEach((st, i) => x.drawImage(st, 0, 0, W, st.height, 0, hy - st.height * (i ? .5 : .8) + 2, W, st.height * (i ? .5 : .8)));
+    S.strips.forEach((st, i) => { const sh2 = st.height / SM; x.drawImage(st, 0, 0, W * SM, st.height, 0, hy - sh2 * (i ? .5 : .8) + 2, W, sh2 * (i ? .5 : .8)); });
     if (S.volcano) x.drawImage(S.volcano, W / 2 - 45, hy - 38, 90, 40);
     for (let y = hy; y < H; y++) { const z = 30 / (y - hy + .5); x.fillStyle = y < hy + 2 ? LK.haze[0] : LK.water[Math.floor(z * 3 + 9) & 1]; x.fillRect(0, y, W, 1); const e = Math.round((y - hy) * 1.25); x.fillStyle = LK.shore === 'wave' ? LK.wall[3] : LK.sand[0]; x.fillRect(0, y, Math.max(0, W / 2 - 6 - e * 1.4), 1); x.fillRect(W / 2 + 6 + e * 1.4, y, W, 1); x.fillStyle = LK.foam[0]; x.fillRect(Math.round(W / 2 - 6 - e * 1.4), y, 1, 1); x.fillRect(Math.round(W / 2 + 6 + e * 1.4), y, 1, 1); if (y % 3 === 0) { x.fillStyle = LK.ripple; x.fillRect(Math.round(W / 2 + (hash2(y, 1) - .5) * e * 2.4), y, 2, 1); } }
     const side = S.houses ? S.houses : S.cliff ? S.cliff : S.isle;
@@ -2701,7 +2703,7 @@ function drawWorldThumb(c, w) {
     const rs = S.rockSmall[0], sw2 = 20; x.drawImage(rs, 46, H - 6 - sw2 * rs.height / rs.width, sw2, sw2 * rs.height / rs.width);
     for (let i = 0; i < 4; i++) { const cs = 5 + i * 2; x.drawImage(SPR.coin[i * 2], W / 2 - cs / 2, hy + 6 + i * i * 4, cs, cs); }
   });
-  const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.clearRect(0, 0, c.width, c.height); x.drawImage(t, 0, 0, c.width, c.height);
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.clearRect(0, 0, c.width, c.height); x.drawImage(t, 0, 0, c.width, c.height);
 }
 
 /* =========================================================================
@@ -2709,7 +2711,7 @@ function drawWorldThumb(c, w) {
    ========================================================================= */
 const cv = $('game');
 const ctx = cv.getContext('2d', { alpha: false });
-const FONT_DISPLAY = '"Pixelify Sans","Arial Black",sans-serif';
+const FONT_DISPLAY = '"Luckiest Guy","Arial Black",Impact,sans-serif';
 const CLOUDS = [], BIRDS = [];
 for (let i = 0; i < 6; i++) CLOUDS.push({ u: rand(1.4), v: rand(.15, .7), sp: rand(.004, .01), i: i % 4 });
 for (let i = 0; i < 5; i++) BIRDS.push({ u: rand(1.3), v: rand(.2, .6), sp: rand(.012, .025), ph: rand(TAU), s: rand(.7, 1.2) });
@@ -2732,7 +2734,7 @@ function qualityTick(interval) {
   if (fps < 48) { Q.good = 0; if (Q.level > 0) { Q.level--; Q.downed = true; save.autoLevel = Q.level; persist(); qualityChanged(); } else if (fps < 44) Q.cap30 = true; return; }
   if (fps > 57 && Q.level < 2 && !Q.downed && !Q.tried) { if (++Q.good >= 4) { Q.tried = true; Q.level++; save.autoLevel = Q.level; persist(); qualityChanged(); } } else Q.good = 0;
 }
-const PIX_TARGET = [160, 190, 216];
+const PIX_TARGET = [300, 380, 460];
 const STREAK_N = [40, 60, 80], GLINT_N = [16, 30, 46], PART_CAP = [260, 460, 650];
 
 function resize() {
@@ -2742,7 +2744,7 @@ function resize() {
   cv.width = Math.ceil(devW / scale); cv.height = Math.ceil(devH / scale);
   cv.style.width = (cv.width * scale / dpr) + 'px'; cv.style.height = (cv.height * scale / dpr) + 'px';
   V.W = cv.width; V.H = cv.height; V.dpr = dpr / scale; V.q = ql; V.pxScale = scale;
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   if (typeof frozenDrawn !== 'undefined') frozenDrawn = false;
   const aspect = V.W / V.H;
   // Hochformat (Smartphone): Kamera näher dran, damit Surfer und Brett groß im Bild sind
@@ -2768,9 +2770,9 @@ function updateCamera(dt) {
 /* ---------- Pixel-Zeichenhelfer ---------- */
 const PATS = new Map();
 function ditherPat(col, k = 1) {
+  // weich statt Pixelraster: halbtransparente Farbe
   const key = col + k; let p = PATS.get(key); if (p) return p;
-  const c = mk(4, 4, x => { x.fillStyle = col; for (let y = 0; y < 4; y++) for (let i = 0; i < 4; i++) if (k === 1 ? (i + y) % 2 === 0 : k === 2 ? (i % 2 === 0 && y % 2 === 0) : (i % 4 === 0 && y % 2 === 0 && (y % 4 === 0 ? 1 : i === 2))) x.fillRect(i, y, 1, 1); });
-  p = ctx.createPattern(c, 'repeat'); PATS.set(key, p); return p;
+  const [r, gg, b] = hexRGB(col); p = `rgba(${r},${gg},${b},${k === 1 ? .5 : k === 2 ? .28 : .14})`; PATS.set(key, p); return p;
 }
 function frect(x, y, w, h, col) { x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h); if (w <= 0 || h <= 0) return; ctx.fillStyle = col; ctx.fillRect(x, y, w, h); }
 function pline(x0, y0, x1, y1, col, w = 1) {
@@ -2849,7 +2851,7 @@ function waterline(x, z, r, py, h) {
 /* ---------- Hauptbild ---------- */
 function render() {
   g = ctx;
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.globalAlpha = 1;
   if (shake > 0) ctx.translate(Math.round((Math.sin(T * 61) + Math.sin(T * 37.3)) * shake * 2.2), Math.round((Math.sin(T * 53.7) + Math.sin(T * 29.1)) * shake * 2.2));
   drawSky();
   drawWater();
@@ -2876,14 +2878,14 @@ function drawSky() {
   if (LK.rays) drawRays(hy);
   if (WSPR.cloud) for (const c of CLOUDS) {
     let u = (c.u - T * c.sp - V.camX * .0012) % 1.4; if (u < 0) u += 1.4;
-    const spr = WSPR.cloud[c.i], k = Math.max(1, Math.round(V.H / 230)), w = spr.width * k, h = spr.height * k;
+    const spr = WSPR.cloud[c.i], k = V.H / 230 / SM, w = spr.width * k, h = spr.height * k;
     dspr(spr, u / 1.4 * (W + w * 2) - w, hy * c.v - h, w, h);
   }
   if (WORLD.id === 'lava') drawVolcano(hy);
   WSPR.strips.forEach((st, i) => {
-    const k = Math.max(1, Math.round(Math.min(V.W * 1.6, V.H) / 230)), w = st.width * k, h = st.height * k;
+    const k = Math.min(V.W * 1.6, V.H) / 230 / SM, w = Math.round(st.width * k), h = Math.round(st.height * k);
     let off = (-(V.camX * V.f * (i ? .006 : .003))) % w; if (off > 0) off -= w;
-    for (let x = off; x < W; x += w) dspr(st, x, hy - h + (i ? 1 : -2 * k), w, h);
+    for (let x = off; x < W; x += w) dspr(st, x, hy - h + (i ? 1 : -2 * k * SM), w, h);
   });
   drawBirds(hy);
 }
@@ -2904,7 +2906,7 @@ function drawRays(hy) {
 }
 function drawVolcano(hy) {
   const spr = WSPR.volcano; if (!spr) return;
-  const k = Math.max(1, Math.round(V.H / 220)), w = spr.width * k, h = spr.height * k, x = Math.round(V.W * .5 - V.camX * V.f * .002 - w / 2), y = hy - h + 2;
+  const k = V.H / 220 / SM, w = spr.width * k, h = spr.height * k, x = Math.round(V.W * .5 - V.camX * V.f * .002 - w / 2), y = hy - h + 2;
   for (const sm of FX.smoke) { const q = (sm.ph + T * .045) % 1; const sx = x + w / 2 + (sm.dx + q * .35) * w * .4, sy = y + h * .15 - q * h * 1.3, r = h * (.1 + q * .3); fdisc(sx, sy, r, null, q < .2 ? '#7a3a2a' : '#3a2a30', q > .6 ? 2 : 1); }
   dspr(spr, x, y, w, h);
 }
@@ -3146,13 +3148,13 @@ function drawPart(pt) {
   const p = proj(pt.x, pt.y, pt.z); if (!p) return;
   const k = pt.life / pt.max;
   switch (pt.type) {
-    case 'drop': { const r = Math.max(1, Math.round(pt.size * p.s * .8)); if (k < .3 && Math.floor(T * 30 + pt.rot) % 2) break; frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); break; }
-    case 'foam': { const r = Math.max(1, Math.round(.09 * p.s)), sp = pt.size * (1.6 - k) * p.s; if (k < .4 && (Math.floor(pt.rot * 3) % 2)) break; const c = k > .5 ? '#ffffff' : WL().foam[1]; frect(p.x - sp - r / 2, p.y, r, Math.max(1, r * .6), c); frect(p.x + sp - r / 2, p.y, r, Math.max(1, r * .6), c); break; }
+    case 'drop': { const r = Math.max(.8, pt.size * p.s * .45); ctx.globalAlpha = Math.min(1, k * 2); ctx.fillStyle = pt.col; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; break; }
+    case 'foam': { const r = Math.max(1, Math.round(.09 * p.s)), sp = pt.size * (1.6 - k) * p.s; ctx.globalAlpha = Math.min(1, k * 1.5); ctx.fillStyle = k > .5 ? '#ffffff' : WL().foam[1]; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(p.x + sd * sp, p.y, r, r * .55, 0, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; break; }
     case 'ring': { const r = pt.size * (1.3 - k) * p.s; if (r < 1) break; const c = k > .4 ? '#ffffff' : WL().foam[2], sz = Math.max(1, Math.round(.1 * p.s)); for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) frect(p.x + sd * r * (.6 + i * .2) - sz / 2, p.y + i % 2, sz * (2 - i * .5), Math.max(1, sz * .6), c); break; }
     case 'spark': { const r = Math.max(1, Math.round(pt.size * p.s * (.4 + k * .6))); frect(p.x - r, p.y, r * 2 + 1, 1, pt.col); frect(p.x, p.y - r, 1, r * 2 + 1, pt.col); frect(p.x, p.y, 1, 1, '#ffffff'); break; }
     case 'ember': { const r = Math.max(1, Math.round(pt.size * p.s * (.5 + k * .6))); frect(p.x - r, p.y - r, r * 2, r * 2, '#ff6a1a'); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r), Math.max(1, r), pt.col); break; }
     case 'chunk': { const r = Math.max(2, Math.round(pt.size * p.s)); frect(p.x - r / 2 - 1, p.y - r / 2 - 1, r + 2, r + 2, OUT); frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r / 2), 1, '#ffffff55'); break; }
-    case 'bubble': { const r = Math.max(1, Math.round(pt.size * p.s)); frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); if (r > 2) frect(p.x - r / 2 + 1, p.y - r / 2 + 1, r - 2, r - 2, WL().water[0]); break; }
+    case 'bubble': { const r = Math.max(1, pt.size * p.s * .6); ctx.globalAlpha = Math.min(1, k * 1.5); ctx.strokeStyle = pt.col; ctx.lineWidth = Math.max(1, r * .25); ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; break; }
   }
 }
 
@@ -3308,22 +3310,23 @@ function textSprite(text, col, big) {
   c = p.canvas(); TXT.set(key, c); if (TXT.size > 120) TXT.delete(TXT.keys().next().value); return c;
 }
 function drawPopups() {
-  const big = V.H >= 200 && V.W >= 300;
+  const base = Math.min(V.H, V.W * .9) * .06;
   popups.forEach((p, i) => {
-    const k = p.t / p.life; if (k > .8 && Math.floor(T * 20) % 2) return;
-    const spr = textSprite(p.text.toUpperCase(), p.col, big);
-    const pop = k < .12 ? Math.round((1 - k / .12) * 6) : 0;
-    const x = popupAnchor[0] + p.dx * V.dpr * .6 - spr.width / 2, y = popupAnchor[1] - k * V.H * .08 - (popups.length - 1 - i) * spr.height - spr.height - pop;
-    ctx.drawImage(spr, Math.round(x), Math.round(y));
+    const k = p.t / p.life, sc = k < .15 ? easeOut(k / .15) * 1.15 : k < .25 ? lerp(1.15, 1, (k - .15) / .1) : 1;
+    const size = Math.max(10, Math.round(base * sc)), x = popupAnchor[0] + p.dx * V.dpr * .6, y = popupAnchor[1] - k * V.H * .08 - (popups.length - 1 - i) * base * 1.1;
+    ctx.globalAlpha = k > .75 ? (1 - k) / .25 : 1;
+    ctx.font = `${size}px ${FONT_DISPLAY}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.lineWidth = size * .22; ctx.strokeStyle = INK; ctx.strokeText(p.text, x, y); ctx.fillStyle = p.col; ctx.fillText(p.text, x, y);
   });
+  ctx.globalAlpha = 1;
 }
 
 /* =========================================================================
    Menüs, HUD, Shop
    ========================================================================= */
 function previewTo(c, fn) {
-  const w = Math.round(c.width / 3), h = Math.round(c.height / 3), p = new Pix(w, h); fn(p, w, h); p.outline(C(OUT));
-  const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.imageSmoothingEnabled = false; x.clearRect(0, 0, c.width, c.height); x.drawImage(p.canvas(PREV_CV), 0, 0, c.width, c.height);
+  const w = Math.round(c.width / 1.5), h = Math.round(c.height / 1.5), p = new Pix(w, h); fn(p, w, h); p.outline(C(OUT));
+  const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.clearRect(0, 0, c.width, c.height); x.drawImage(p.canvas(PREV_CV), 0, 0, c.width, c.height);
 }
 const PREV_CV = document.createElement('canvas');
 function drawBoardPreview(c, bd, t) {
@@ -3711,7 +3714,6 @@ const UI = (() => {
 
   function init() {
     COIN_URL = SPR.coin[0].toDataURL();
-    { const sv = document.querySelector('#distPill svg'); if (sv) { const im = document.createElement('img'); im.className = 'ico'; im.alt = ''; im.src = SPR.icon.wave.toDataURL(); sv.replaceWith(im); } }
     for (const k of ['magnet', 'shield', 'kite', 'double', 'ring', 'turbo']) ICON_URL[k] = SPR.icon[k].toDataURL();
     drawLogo();
     document.querySelectorAll('.coin-src').forEach(i => { i.src = COIN_URL; });
@@ -3854,7 +3856,7 @@ function installAppMeta() {
 async function boot() {
   qualityInit();
   resize();
-  try { await Promise.race([Promise.all([document.fonts.load('700 40px "Pixelify Sans"'), document.fonts.load('400 20px "Pixelify Sans"'), document.fonts.load('20px "Press Start 2P"')]), new Promise(r => setTimeout(r, 1800))]); } catch (e) {}
+  try { await Promise.race([Promise.all([document.fonts.load('40px "Luckiest Guy"'), document.fonts.load('600 20px "Fredoka"')]), new Promise(r => setTimeout(r, 1800))]); } catch (e) {}
   await buildSprites(p => { $('loadBar').style.width = (p * 100).toFixed(0) + '%'; });
   const w0 = getWorld(save.world);
   setWorld(save.worlds.includes(w0.id) && worldGearOk(w0) ? w0.id : 'tropen');
