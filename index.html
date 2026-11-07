@@ -2391,7 +2391,7 @@ const LOOK = {
     cloud: ['#08142e', '#102650', '#1c3d6c', '#2d5a8a'],
     strips: [{ kind: 'islands', cols: ['#0f2a50', '#123460', '#1a4672'], h: 52 }, { kind: 'islands', cols: ['#081a36', '#0a2040', '#164a52'], h: 34 }],
     water: ['#0a4a68', '#0d5677'], far: '#0b3858', ripple: '#35d0dc', ripple2: '#8ff8f2', trough: '#05304a', lane: '#167690', path: ['#bffcf6', '#5fe0e6'], foam: ['#ffffff', '#b8fbf6', '#4fd6dc'],
-    haze: ['#1c4f7a', '#143f66'], shore: 'wave', wall: ['#042a40', '#08445e', '#0f6a84', '#1fa0b4', '#5fe0e2', '#c8fff8'],
+    haze: ['#1c4f7a', '#143f66'], shore: 'sand', sand: ['#2c5a70', '#306078'], wet: ['#1e4658', '#bffcf6'], wall: ['#042a40', '#08445e', '#0f6a84', '#1fa0b4', '#5fe0e2', '#c8fff8'],
     rock: ['#060e1e', '#101e36', '#1d3352', '#33547a', '#5e86ac'], cap: ['#0e4a4a', '#1a7a6a', '#3ac0a0'], wave: ['#042e44', '#08506a', '#0f7c94', '#24b4c4', '#7ff4ec'], waveFoam: '#e8fffd',
   },
   canyon: {
@@ -2656,13 +2656,13 @@ function drawShark(o) {
   if (Math.random() < .1) addPart('bubble', x + dir * 1.1, y + .1, o.z, rand(-.2, .2), 1, 0, 1, rand(.05, .1), '#dff6ff');
 }
 function drawGondola(o) {
-  const spr = WSPR.gondola, p = proj(o.x, -.35 + Math.sin(T * 2 + o.variant) * .05, o.z); if (!p) return;
+  const spr = WSPR.gondola, p = proj(o.x, -.35, o.z); if (!p) return;
   const w = 1.9 * p.s, h = w * spr.height / spr.width;
   dspr(spr, p.x - w / 2, p.y - h, w, h); waterline(o.x, o.z, .9, p.y, h);
   foamPix(o.x, o.z - .3, .8, T * 2 + o.variant);
 }
 function drawCritter(o) {
-  const spr = WSPR.critter, p = proj(o.x, -.22 + Math.sin(T * 2 + o.variant) * .05, o.z); if (!p) return;
+  const spr = WSPR.critter, p = proj(o.x, -.22, o.z); if (!p) return;
   const w = o.w * 1.35 * p.s, h = w * spr.height / spr.width;
   dspr(spr, p.x - w / 2, p.y - h, w, h); waterline(o.x, o.z, o.w * .6, p.y, h);
   foamPix(o.x, o.z, o.w * .6, T + o.variant);
@@ -2831,7 +2831,7 @@ function foamPixOld(x, z, r, t) {
 function foamRow(x0, x1, z, t) {
   const a = proj(x0, 0, z), b = proj(x1, 0, z); if (!a || !b) return;
   const LK = WL(), n = Math.max(4, Math.round((b.x - a.x) / Math.max(2, .25 * a.s)));
-  for (let i = 0; i <= n; i++) { const x = lerp(a.x, b.x, i / n), sz = Math.max(1, Math.round(.14 * a.s * (.6 + .5 * Math.sin(t * 4 + i * 1.9)))); frect(x - sz / 2, a.y - sz * .4, sz, Math.max(1, sz * .5), LK.foam[i % 4 === 0 ? 1 : 0]); }
+  for (let i = 0; i <= n; i++) { const x = lerp(a.x, b.x, i / n), sz = Math.max(1, Math.round(.13 * a.s * (.65 + .45 * hash2(i, Math.floor(x0 * 10))))); if (hash2(i, 31) < .2) continue; frect(x - sz / 2, a.y - sz * .4, sz, Math.max(1, sz * .5), LK.foam[i % 4 === 0 ? 1 : 0]); }
 }
 /** halb untergetauchte Objekte: Wasser legt sich als Pixelraster über den unteren Teil */
 function waterline(x, z, r, py, h) {
@@ -2915,7 +2915,7 @@ function drawWater() {
   const LK = WL(), W = V.W, H = V.H, f = V.f, cx = V.cx, hy = Math.round(V.hy);
   const sm = LK.moon || LK.sun, pathX = sm ? Math.round(W * sm.x - V.camX * .3) : -1;
   const wave = LK.shore === 'wave';
-  let prevBand = null;
+  let prevBand = null, prevPath = null;
   for (let y = hy + 1; y < H; y++) {
     const dy = y + .5 - V.hy; if (dy <= 0) continue;
     const zc = V.camY * f / dy, wz = V.camZ + zc, k = f / zc;
@@ -2926,7 +2926,6 @@ function drawWater() {
     if (t < 3 && zc > edge * .82) frect(0, y, W, 1, ditherPat(cols[t + 1], zc > edge * .92 ? 1 : 2));
     // lange Dünung, die ruhig auf die Kamera zuläuft
     const sw = (wz / 7 + T * .05) % 1;
-    if (sw < .05 && zc < 60 && zc > 6) frect(0, y, W, 1, ditherPat(LK.trough, 3));
     // wenige Glanzlichter in Weltkoordinaten
     const band = Math.floor(wz * 1.1);
     if (band !== prevBand && zc < 70) {
@@ -2934,17 +2933,17 @@ function drawWater() {
     }
     prevBand = band;
     // Mond-/Sonnenspiegelung
-    if (pathX >= 0) { const pw = 1.5 + (y - hy) * .1; const hsh = hash2(y, Math.floor(T * 6)); if (hsh < .4) { const ox = Math.round((hash2(y, Math.floor(T * 8) + 7) - .5) * pw * 1.6); ctx.fillStyle = hsh < .1 ? LK.path[0] : LK.path[1]; ctx.fillRect(pathX + ox - Math.round(pw * .25), y, Math.max(1, Math.round(pw * (.25 + hsh))), 1); } }
+    if (pathX >= 0) { const pw = 1.5 + (y - hy) * .1; const pb2 = Math.floor(wz * 2.5), hsh = hash2(pb2, 7); if (hsh < .4 && pb2 !== prevPath && zc > 6) { prevPath = pb2; const ox = Math.round((hash2(pb2, 9) - .5) * pw * 1.6); ctx.fillStyle = hsh < .1 ? LK.path[0] : LK.path[1]; ctx.fillRect(pathX + ox - Math.round(pw * .25), y, Math.max(1, Math.round(pw * (.25 + hsh))), 1); } }
     // Spurmarkierung
     if (zc < 70 && (Math.floor(wz / 2) % 3 === 0)) { const lw = Math.max(1, Math.round(.07 * k)); ctx.fillStyle = LK.lane; for (const lx of [-1.25, 1.25]) ctx.fillRect(Math.round(cx + (lx - V.camX) * k - lw / 2), y, lw, 1); }
     // Ufer
     for (const side of [-1, 1]) {
-      const sh = shoreX(wz, side) + Math.sin(wz * .9 + T * 2.2) * .12, e = Math.round(cx + (side * sh - V.camX) * k);
+      const sh = shoreX(wz, side), e = Math.round(cx + (side * sh - V.camX) * k);
       const foamW = Math.max(1, Math.round(.35 * k)), wetW = Math.max(1, Math.round(.8 * k));
       if (wave) { ctx.fillStyle = LK.wall[1]; if (side < 0) ctx.fillRect(0, y, Math.max(0, e), 1); else ctx.fillRect(e, y, W - e, 1); continue; }
       const sand = LK.sand[Math.floor(wz / 3) & 1];
-      if (side < 0) { ctx.fillStyle = sand; ctx.fillRect(0, y, e - wetW, 1); ctx.fillStyle = LK.wet[0]; ctx.fillRect(e - wetW, y, wetW, 1); ctx.fillStyle = LK.foam[(y + Math.floor(T * 6)) % 3 ? 0 : 1]; ctx.fillRect(e, y, foamW, 1); if (LK.shore === 'quay') { ctx.fillStyle = LK.wet[1]; ctx.fillRect(e - wetW - 1, y, 1, 1); } }
-      else { ctx.fillStyle = LK.foam[(y + Math.floor(T * 6)) % 3 ? 0 : 1]; ctx.fillRect(e - foamW, y, foamW, 1); ctx.fillStyle = LK.wet[0]; ctx.fillRect(e, y, wetW, 1); ctx.fillStyle = sand; ctx.fillRect(e + wetW, y, W - e - wetW, 1); if (LK.shore === 'quay') { ctx.fillStyle = LK.wet[1]; ctx.fillRect(e + wetW, y, 1, 1); } }
+      if (side < 0) { ctx.fillStyle = sand; ctx.fillRect(0, y, e - wetW, 1); ctx.fillStyle = LK.wet[0]; ctx.fillRect(e - wetW, y, wetW, 1); ctx.fillStyle = LK.foam[(Math.floor(wz * 1.5) % 3) ? 0 : 1]; ctx.fillRect(e, y, foamW, 1); if (LK.shore === 'quay') { ctx.fillStyle = LK.wet[1]; ctx.fillRect(e - wetW - 1, y, 1, 1); } }
+      else { ctx.fillStyle = LK.foam[(Math.floor(wz * 1.5) % 3) ? 0 : 1]; ctx.fillRect(e - foamW, y, foamW, 1); ctx.fillStyle = LK.wet[0]; ctx.fillRect(e, y, wetW, 1); ctx.fillStyle = sand; ctx.fillRect(e + wetW, y, W - e - wetW, 1); if (LK.shore === 'quay') { ctx.fillStyle = LK.wet[1]; ctx.fillRect(e + wetW, y, 1, 1); } }
     }
   }
   // Dunst am Horizont
@@ -3041,7 +3040,7 @@ function drawObs(o) {
 }
 function drawRock(o) {
   const big = o.type === 'rockB', arr = big ? WSPR.rockBig : WSPR.rockSmall, spr = arr[o.variant % arr.length];
-  const p = proj(o.x, -.25 + Math.sin(T * 1.5 + o.variant) * .03, o.z); if (!p) return;
+  const p = proj(o.x, -.25, o.z); if (!p) return;
   const w = o.w * 1.14 * p.s, h = w * spr.height / spr.width;
   dspr(spr, p.x - w / 2, p.y - h, w, h);
   foamPix(o.x, o.z, o.w * .6, T + o.variant);
@@ -3049,14 +3048,14 @@ function drawRock(o) {
 function drawTurtle(o) {
   const fr = Math.floor((o.t * 6 + o.variant) % 6), spr = (o.dir > 0 ? SPR.turtle : SPR.turtleF)[fr];
   const dive = o.gone ? o.gone * 1.6 : 0;
-  const p = proj(o.x, -.25 - dive + Math.sin(T * 2 + o.variant) * .04, o.z); if (!p) return;
+  const p = proj(o.x, -.25 - dive, o.z); if (!p) return;
   const w = o.w * 1.25 * p.s, h = w * spr.height / spr.width;
   dspr(spr, p.x - w / 2, p.y - h * .85, w, h); waterline(o.x, o.z, o.w * .55, p.y + h * .15, h);
   foamPix(o.x, o.z, o.w * .6, T + o.variant);
 }
 function drawLog(o) {
   const spr = o.w > 4 ? (WSPR.logL || SPR.logL) : (WSPR.logS || SPR.logS);
-  const p = proj(o.x, -.12 + Math.sin(T * 1.8 + o.variant) * .04, o.z); if (!p) return;
+  const p = proj(o.x, -.12, o.z); if (!p) return;
   const w = (o.w + .3) * p.s, h = w * spr.height / spr.width;
   dspr(spr, p.x - w / 2, p.y - h * .85, w, h);
   foamRow(o.x - o.w / 2 - .2, o.x + o.w / 2 + .2, o.z - .3, T + o.variant);
@@ -3081,29 +3080,39 @@ function drawDolphin(o) {
 }
 function drawWave(o) {
   const big = o.type === 'waveB', LK = WL(), R5 = LK.wave;
-  const x0 = o.x - o.w / 2 - .6, x1 = o.x + o.w / 2 + .6;
-  const zF = o.z - o.d / 2, zC = o.z - (big ? .4 : .1), zB = o.z + o.d * .9;
+  const x0 = o.x - o.w / 2 - .5, x1 = o.x + o.w / 2 + .5;
+  const zF = o.z - o.d / 2, zC = o.z - (big ? .5 : .15), zB = o.z + o.d * .8;
   const pf0 = proj(x0, 0, zF), pf1 = proj(x1, 0, zF), pc = proj(o.x, 0, zC), pb = proj(o.x, 0, zB); if (!pf0 || !pf1 || !pc || !pb) return;
   const sx0 = Math.round(pf0.x), sx1 = Math.round(pf1.x), yF = Math.round(pf0.y), yB = Math.round(pb.y), span = Math.max(1, sx1 - sx0);
+  const deep = tone(R5[0], -.3), foam = LK.waveFoam, s = pc.s;
+  let prevTop = null;
   for (let sx = sx0; sx <= sx1; sx++) {
-    if (sx < -2 || sx > V.W + 2) continue;
-    const x = lerp(x0, x1, (sx - sx0) / span), edge = smooth01((x - x0) / 1.3) * smooth01((x1 - x) / 1.3);
-    const hh = o.h * edge * (1 + .08 * Math.sin(x * 1.7 + o.t * 3.4)), yC = Math.round(pc.y - hh * pc.s);
+    if (sx < -2 || sx > V.W + 2) { prevTop = null; continue; }
+    const x = lerp(x0, x1, (sx - sx0) / span), edge = Math.pow(smooth01((x - x0) / 1.8) * smooth01((x1 - x) / 1.8), .7);
+    const hh = o.h * edge * (.8 + .2 * Math.sin(x * .8 + o.variant * .7)), yC = Math.round(pc.y - hh * s);
+    const hgt = yF - yC;
     if (yB < yC) { ctx.fillStyle = R5[1]; ctx.fillRect(sx, yB, 1, yC - yB); }
-    const hgt = yF - yC; if (hgt <= 0) continue;
-    const j = ((sx * 7) % 5) - 2;
-    const b1 = yC + Math.round(hgt * .22) + j, b2 = yC + Math.round(hgt * .5) + j, b3 = yC + Math.round(hgt * .78);
-    ctx.fillStyle = R5[4]; ctx.fillRect(sx, yC, 1, b1 - yC);
-    ctx.fillStyle = R5[3]; ctx.fillRect(sx, b1, 1, b2 - b1);
-    ctx.fillStyle = R5[2]; ctx.fillRect(sx, b2, 1, b3 - b2);
-    ctx.fillStyle = R5[1]; ctx.fillRect(sx, b3, 1, yF - b3);
-    if (big) { ctx.fillStyle = R5[0]; ctx.fillRect(sx, yC + Math.round(hgt * .08), 1, Math.max(1, Math.round(hgt * .12))); }
-    if ((sx + Math.floor(o.t * 8)) % 4 === 0) { ctx.fillStyle = R5[4]; ctx.fillRect(sx, b2 + 1, 1, Math.max(1, Math.round(hgt * .15))); }
-    const fh = Math.max(1, Math.round((big ? .42 : .26) * pc.s * (.55 + .45 * Math.sin(o.t * 6 + sx * .6)) * (.3 + .7 * edge)));
-    ctx.fillStyle = (sx + Math.floor(o.t * 10)) % 5 === 0 ? R5[4] : LK.waveFoam; ctx.fillRect(sx, yC - Math.round(fh * .6), 1, fh);
-    if (big && edge > .5 && hash2(sx, Math.floor(o.t * 12)) < .25) { ctx.fillStyle = LK.waveFoam; ctx.fillRect(sx, yC - fh - Math.round(hash2(sx, 9) * fh * 1.5), 1, 1); }
+    if (hgt <= 0) { prevTop = null; continue; }
+    const fh = Math.max(2, Math.round((big ? .42 : .28) * s * (.5 + .5 * edge))), top = yC - Math.round(fh * .5);
+    // Wellenkörper: hell oben, dunkel unten, harte Bänder
+    const b1 = yC + Math.round(hgt * .28), b2 = yC + Math.round(hgt * .58), b3 = yC + Math.round(hgt * .82);
+    ctx.fillStyle = R5[3]; ctx.fillRect(sx, yC, 1, b1 - yC);
+    ctx.fillStyle = R5[2]; ctx.fillRect(sx, b1, 1, b2 - b1);
+    ctx.fillStyle = R5[1]; ctx.fillRect(sx, b2, 1, b3 - b2);
+    ctx.fillStyle = R5[0]; ctx.fillRect(sx, b3, 1, yF - b3);
+    if (big) { ctx.fillStyle = deep; ctx.fillRect(sx, yC + fh - 1, 1, Math.max(1, Math.round(hgt * .22))); }
+    ctx.fillStyle = R5[4]; ctx.fillRect(sx, yC + fh - 1, 1, 1);
+    if (Math.floor(x * 1.7 + yC * .05) % 5 === 0) { ctx.fillStyle = R5[3]; ctx.fillRect(sx, b2, 1, Math.max(1, Math.round(hgt * .14))); }
+    // Schaumkrone mit dunkler Kontur – so hebt sich die Welle klar vom Wasser ab
+    ctx.fillStyle = foam; ctx.fillRect(sx, top, 1, fh);
+    ctx.fillStyle = OUT; ctx.fillRect(sx, top - 1, 1, 1);
+    if (prevTop !== null && Math.abs(prevTop - top) > 1) ctx.fillRect(sx, Math.min(prevTop, top) - 1, 1, Math.abs(prevTop - top));
+    prevTop = top;
+    if (hash2(Math.floor(x * 4), o.variant) < .3 && edge > .4) { ctx.fillStyle = foam; ctx.fillRect(sx, top - 1 - Math.round(hash2(Math.floor(x * 4), 3) * fh * .8), 1, 1); }
+    ctx.fillStyle = foam; ctx.fillRect(sx, yF - 1, 1, 1);
   }
-  foamRow(x0 + .4, x1 - .4, zF - .1, o.t);
+  frect(sx0 - 1, Math.round(pf0.y) - 1, 1, 1, OUT);
+  foamRow(x0 + .3, x1 - .3, zF - .1, o.variant);
 }
 function drawCoin(c) {
   const p = proj(c.x, c.y + Math.sin(c.t * 3 + c.ph) * .06, c.z);
@@ -3146,7 +3155,7 @@ function drawWake() {
   for (const sd of [-1, 1]) {
     const a = proj(P.x + sd * .2, 0, P.z - .7), b = proj(P.x + sd * 1.9, 0, P.z - 5.4); if (!a || !b) continue;
     const n = 14;
-    for (let i = 0; i <= n; i++) { const t = i / n, x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), sz = Math.max(1, Math.round((1 - t) * .22 * a.s * (.6 + .4 * Math.sin(T * 14 + i * 2)))); frect(x - sz / 2, y, sz, Math.max(1, sz * .6), i % 3 ? LK.foam[0] : LK.foam[1]); }
+    for (let i = 0; i <= n; i++) { const t = i / n, x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), sz = Math.max(1, Math.round((1 - t) * .2 * a.s * (.7 + .3 * hash2(i, 5)))); frect(x - sz / 2, y, sz, Math.max(1, sz * .6), i % 3 ? LK.foam[0] : LK.foam[1]); }
   }
 }
 function drawPlayer() {
@@ -3174,7 +3183,6 @@ function drawPlayer() {
   if (!blink) blitLayer(lay);
   popupAnchor = out.headTop;
   const root = lp2(fF, fB, .5);
-  if (onWater) { foamPix(P.x, P.z + .9, .45, T * 1.6); }
   if (run.pw.kite > 0 && state === 'play') drawKite(root, s);
   if (run.pw.shield > 0 && state === 'play') drawBubble(root, s);
   if (run.pw.magnet > 0 && state === 'play') drawMagnetFx(root, s);
