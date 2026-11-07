@@ -2725,7 +2725,7 @@ function qualityTick(interval) {
   if (fps < 48) { Q.good = 0; if (Q.level > 0) { Q.level--; Q.downed = true; save.autoLevel = Q.level; persist(); qualityChanged(); } else if (fps < 44) Q.cap30 = true; return; }
   if (fps > 57 && Q.level < 2 && !Q.downed && !Q.tried) { if (++Q.good >= 4) { Q.tried = true; Q.level++; save.autoLevel = Q.level; persist(); qualityChanged(); } } else Q.good = 0;
 }
-const PIX_TARGET = [130, 150, 172];
+const PIX_TARGET = [160, 190, 216];
 const STREAK_N = [40, 60, 80], GLINT_N = [16, 30, 46], PART_CAP = [260, 460, 650];
 
 function resize() {
@@ -2802,7 +2802,25 @@ function hazed(spr, zc) {
   if (!v.c[lvl]) v.c[lvl] = tintCanvas(spr, WL().haze[1], [0, .28, .5, .7][lvl]);
   return v.c[lvl];
 }
-function dspr(spr, x, y, w, h) { const W2 = Math.round(w), H2 = Math.round(h); if (W2 < 1 || H2 < 1) return; ctx.drawImage(spr, Math.round(x), Math.round(y), W2, H2); }
+/** Mipmaps: kleine, ferne Sprites werden sauber verkleinert statt zufällig Pixel auszulassen – Umrisse bleiben lesbar */
+const MIPS = new WeakMap();
+function mipOf(spr, w) {
+  if (w >= spr.width * .7) return spr;
+  let m = MIPS.get(spr); if (!m) { m = [spr]; MIPS.set(spr, m); }
+  let i = 0;
+  while (true) {
+    const cur = m[i]; if (w >= cur.width * .7 || cur.width < 6) return cur;
+    if (!m[i + 1]) {
+      const nw = Math.max(2, Math.round(cur.width / 2)), nh = Math.max(2, Math.round(cur.height / 2));
+      const c = document.createElement('canvas'); c.width = nw; c.height = nh; const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(cur, 0, 0, nw, nh);
+      const img = x.getImageData(0, 0, nw, nh), d = img.data;
+      for (let k = 0; k < d.length; k += 4) { if (d[k + 3] < 90) { d[k + 3] = 0; continue; } const a = d[k + 3] / 255; d[k] = Math.round(d[k] / a); d[k + 1] = Math.round(d[k + 1] / a); d[k + 2] = Math.round(d[k + 2] / a); d[k + 3] = 255; }
+      x.putImageData(img, 0, 0); m[i + 1] = c;
+    }
+    i++;
+  }
+}
+function dspr(spr, x, y, w, h) { const W2 = Math.round(w), H2 = Math.round(h); if (W2 < 1 || H2 < 1) return; ctx.drawImage(mipOf(spr, W2), Math.round(x), Math.round(y), W2, H2); }
 function pring(cx, cy, rx, ry, col, w = 1) { const n = Math.max(8, Math.round((rx + ry) * 3)); ctx.fillStyle = col; for (let i = 0; i < n; i++) { const a = i / n * TAU; ctx.fillRect(Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), w, w); } }
 function foamPix(x, z, r, t) { foamRow(x - r, x + r, z - r * .3, t); }
 function foamPixOld(x, z, r, t) {
@@ -3025,7 +3043,7 @@ function drawRock(o) {
   const big = o.type === 'rockB', arr = big ? WSPR.rockBig : WSPR.rockSmall, spr = arr[o.variant % arr.length];
   const p = proj(o.x, -.25 + Math.sin(T * 1.5 + o.variant) * .03, o.z); if (!p) return;
   const w = o.w * 1.14 * p.s, h = w * spr.height / spr.width;
-  dspr(hazed(spr, p.zc), p.x - w / 2, p.y - h, w, h);
+  dspr(spr, p.x - w / 2, p.y - h, w, h);
   foamPix(o.x, o.z, o.w * .6, T + o.variant);
 }
 function drawTurtle(o) {
@@ -3040,7 +3058,7 @@ function drawLog(o) {
   const spr = o.w > 4 ? (WSPR.logL || SPR.logL) : (WSPR.logS || SPR.logS);
   const p = proj(o.x, -.12 + Math.sin(T * 1.8 + o.variant) * .04, o.z); if (!p) return;
   const w = (o.w + .3) * p.s, h = w * spr.height / spr.width;
-  dspr(hazed(spr, p.zc), p.x - w / 2, p.y - h * .85, w, h);
+  dspr(spr, p.x - w / 2, p.y - h * .85, w, h);
   foamRow(o.x - o.w / 2 - .2, o.x + o.w / 2 + .2, o.z - .3, T + o.variant);
 }
 function drawMover(o) {
