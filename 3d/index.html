@@ -29,12 +29,17 @@ a.link{color:#bff4ff;font-weight:600}
 .snd{position:fixed;z-index:5;top:max(12px,env(safe-area-inset-top));left:12px;width:46px;height:46px;border-radius:50%;border:2px solid rgba(255,255,255,.25);background:rgba(13,42,74,.72) center/26px no-repeat;cursor:pointer}
 .snd.on{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M4 9h4l5-4v14l-5-4H4z'/%3E%3Cpath d='M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12' stroke='%23fff' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")}
 .snd.off{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M4 9h4l5-4v14l-5-4H4z'/%3E%3Cpath d='M16 9l5 6M21 9l-5 6' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")}
+.powbox{position:fixed;top:calc(max(12px,env(safe-area-inset-top)) + 56px);left:12px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.pw{position:relative;width:132px;height:28px;border-radius:999px;background:rgba(13,42,74,.72);border:2px solid var(--c);overflow:hidden;font:600 14px/24px var(--ui);padding-left:6px}
+.pw img{position:relative;width:22px;height:22px;vertical-align:-6px;margin-right:6px}.pw i{position:absolute;left:0;top:0;bottom:0;background:var(--c);opacity:.45}.pw span{position:relative}
+.pop{position:fixed;left:0;top:0;font:400 clamp(22px,3.6vmin,38px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 #0d2a4a,2px 2px 0 #0d2a4a,-2px 2px 0 #0d2a4a,2px -2px 0 #0d2a4a,-2px -2px 0 #0d2a4a;pointer-events:none;white-space:nowrap;will-change:transform}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
 </style>
 </head>
 <body>
 <canvas id="c" tabindex="0" aria-label="Surfers Surf 3D Spielfläche"></canvas>
 <button class="snd" id="snd" aria-label="Ton an/aus" title="Ton an/aus"></button>
+<div class="powbox" id="pow"></div>
 <div class="hud" id="hud" hidden>
   <div class="pill"><span class="coin"></span><span id="coins">0</span></div>
   <div class="pill"><span id="dist">0 m</span></div>

@@ -375,6 +375,7 @@ function pose(t, dt) {
   const pump = Math.sin(t * 3.2);
   let crouch = 0.42 + pump * 0.04, lean = P.lean, armA = 0.95, armUp = 0, tuck = 0;
   if (P.air) { const k = smooth01((P.airT - 0.05) / 0.25); crouch = lerp(0.2, 0.75, k); tuck = k; armUp = 0.6; }
+  if (pw.kite > 0 && state === 'play') { crouch = 0.25 + Math.sin(t * 2) * 0.05; tuck = 0; }
   if (P.landT > 0) { const ph = 1 - P.landT / 0.34, c = Math.exp(-ph * 4.2) * Math.cos(ph * 7.5) * smooth01(P.landT / 0.06); crouch += 0.45 * c; armUp -= 0.3 * c; }
   crouch += Math.abs(lean) * 0.18;
   const dk = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0;
@@ -396,6 +397,7 @@ function pose(t, dt) {
   const aL = armA + armUp + lean * 0.7 + sway + SEC.hx * 0.2, aR = armA + armUp - lean * 0.7 - sway - SEC.hx * 0.2;
   J.hdL.copy(J.shL).add(_v1.set(-0.5 - Math.cos(aL) * 0.06 + tuck * 0.15, -0.3 + (aL - 0.95) * 0.45, -0.1 + tuck * 0.05));
   J.hdR.copy(J.shR).add(_v1.set(0.5 + Math.cos(aR) * 0.06 - tuck * 0.15, -0.3 + (aR - 0.95) * 0.45, 0.04 + tuck * 0.05));
+  if (pw.kite > 0 && state === 'play') { J.hdL.copy(J.shL).add(_v1.set(-0.18, 0.52, -0.05)); J.hdR.copy(J.shR).add(_v1.set(0.18, 0.52, 0.05)); }
   if (dk > 0) { J.hdL.lerp(_v1.set(-0.32, 0.42, -0.62), dk); J.hdR.lerp(_v2.set(0.32, 0.38, -0.3), dk); }
   if (P.trick === 'grab' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdL.lerp(_v1.set(0.3, 0.2, -0.1), w); }
   if (P.trick === 'shaka' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdR.lerp(_v1.copy(J.shR).add(_v2.set(0.05, 0.55, 0.15)), w); }
@@ -600,6 +602,123 @@ const coins = [];
 function addCoin(x, y, z) { if (coins.length >= COIN_N) return; coins.push({ x, y, z, taken: false, t: 0 }); }
 
 /* =========================================================================
+   Power-ups: Magnet, Schild, Drachen – schwebende Blasen mit Symbol
+   ========================================================================= */
+const PW = { magnet: { dur: 10, col: '#ff5a6e' }, shield: { dur: 15, col: '#5fd0ff' }, kite: { dur: 6, col: '#ffcc33' } };
+const pw = { magnet: 0, shield: 0, kite: 0, grace: 0 };
+function iconTex(type) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  x.lineCap = x.lineJoin = 'round'; x.translate(64, 64);
+  if (type === 'magnet') {
+    x.lineWidth = 30; x.strokeStyle = '#0d2a4a'; x.beginPath(); x.arc(0, -4, 30, Math.PI, 0); x.lineTo(30, 34); x.moveTo(-30, -4); x.lineTo(-30, 34); x.stroke();
+    x.lineWidth = 20; x.strokeStyle = '#ff4a5e'; x.beginPath(); x.arc(0, -4, 30, Math.PI, 0); x.lineTo(30, 22); x.moveTo(-30, -4); x.lineTo(-30, 22); x.stroke();
+    x.fillStyle = '#e8eef4'; x.fillRect(-41, 22, 22, 16); x.fillRect(19, 22, 22, 16);
+  } else if (type === 'shield') {
+    x.fillStyle = '#0d2a4a'; x.beginPath(); x.moveTo(0, -46); x.quadraticCurveTo(40, -40, 42, -26); x.quadraticCurveTo(40, 22, 0, 48); x.quadraticCurveTo(-40, 22, -42, -26); x.quadraticCurveTo(-40, -40, 0, -46); x.fill();
+    x.fillStyle = '#4fc8ff'; x.beginPath(); x.moveTo(0, -36); x.quadraticCurveTo(32, -31, 33, -21); x.quadraticCurveTo(31, 16, 0, 37); x.quadraticCurveTo(-31, 16, -33, -21); x.quadraticCurveTo(-32, -31, 0, -36); x.fill();
+    x.fillStyle = 'rgba(255,255,255,.7)'; x.beginPath(); x.ellipse(-12, -14, 9, 15, -0.4, 0, TAU); x.fill();
+  } else {
+    x.fillStyle = '#0d2a4a'; x.beginPath(); x.moveTo(0, -50); x.lineTo(40, -6); x.lineTo(0, 34); x.lineTo(-40, -6); x.closePath(); x.fill();
+    const g = x.createLinearGradient(-34, 0, 34, 0); g.addColorStop(0, '#ff4d4d'); g.addColorStop(.33, '#ffcc33'); g.addColorStop(.66, '#2fa3ff'); g.addColorStop(1, '#3cd070');
+    x.fillStyle = g; x.beginPath(); x.moveTo(0, -41); x.lineTo(31, -6); x.lineTo(0, 25); x.lineTo(-31, -6); x.closePath(); x.fill();
+    x.strokeStyle = '#0d2a4a'; x.lineWidth = 5; x.beginPath(); x.moveTo(0, 34); x.quadraticCurveTo(14, 46, 2, 58); x.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const ICONS = { magnet: iconTex('magnet'), shield: iconTex('shield'), kite: iconTex('kite') };
+const ICON_URL = Object.fromEntries(Object.entries(ICONS).map(([k, t]) => [k, t.image.toDataURL()]));
+const bubbleMat = new THREE.ShaderMaterial({
+  uniforms: { uCol: { value: new THREE.Color('#bff4ff') }, uA: { value: 0.85 } },
+  vertexShader: `varying vec3 vN, vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform vec3 uCol; uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 2.2); vec3 c = mix(uCol * .6, vec3(1.), f * .7);
+    float hl = smoothstep(.93, .99, dot(vN, normalize(vec3(-.5, .6, .6)))); gl_FragColor = vec4(c + hl, (f * .9 + .08 + hl) * uA);
+    #include <colorspace_fragment>
+    }`,
+  transparent: true, depthWrite: false,
+});
+const pickups = [];
+function addPickup(type, lane, z) {
+  const g = new THREE.Group();
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.62, 24, 16), bubbleMat); g.add(b);
+  const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: ICONS[type], transparent: true, depthWrite: false })); ic.scale.setScalar(0.8); g.add(ic);
+  g.position.set(lane * LANE_W, 1.1, z); scene.add(g);
+  pickups.push({ type, x: lane * LANE_W, z, g, taken: false, t: 0 });
+}
+// Schutzblase um den Surfer
+const shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(1.25, 32, 20), bubbleMat.clone());
+shieldMesh.material.uniforms = { uCol: { value: new THREE.Color('#7fe0ff') }, uA: { value: 0.75 } };
+shieldMesh.visible = false; scene.add(shieldMesh);
+// Drachen: bunter Lenkdrachen mit Leinen zu den Händen
+const kite = (() => {
+  const g = new THREE.Group();
+  const kc = document.createElement('canvas'); kc.width = 256; kc.height = 128; const x = kc.getContext('2d');
+  ['#ff4d4d', '#ffcc33', '#ffffff', '#2fa3ff', '#ffffff', '#ffcc33', '#ff4d4d'].forEach((c, i) => { x.fillStyle = c; x.fillRect(i * 256 / 7, 0, 256 / 7 + 1, 128); });
+  const kt = new THREE.CanvasTexture(kc); kt.colorSpace = THREE.SRGBColorSpace;
+  const sh = new THREE.Shape(); sh.moveTo(-1.7, 0.2); sh.bezierCurveTo(-1.4, 1.1, 1.4, 1.1, 1.7, 0.2); sh.bezierCurveTo(1.1, 0.55, -1.1, 0.55, -1.7, 0.2);
+  const sg = new THREE.ShapeGeometry(sh, 16); const uv = sg.attributes.uv, ps = sg.attributes.position;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (ps.getX(i) + 1.7) / 3.4, ps.getY(i));
+  // leicht gewölbt
+  for (let i = 0; i < ps.count; i++) ps.setZ(i, -Math.pow(ps.getX(i) / 1.7, 2) * 0.35);
+  sg.computeVertexNormals();
+  g.add(withOutline(new THREE.Mesh(sg, toon('#ffffff', { map: kt, side: THREE.DoubleSide })), 0.03));
+  const lineGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+  const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: '#1d2636', transparent: true, opacity: 0.7 }));
+  lines.frustumCulled = false; scene.add(lines);
+  g.userData.lines = lines; g.visible = false; scene.add(g); return g;
+})();
+function activate(type) {
+  if (type === 'kite') { pw.kite = PW.kite.dur; P.air = true; P.vy = 0; P.trick = null; P.duck = 0; }
+  else pw[type] = PW[type].dur;
+  Sound.fx.power(); popup({ magnet: 'Magnet!', shield: 'Schutzblase!', kite: 'Drachen!' }[type], PW[type].col);
+  for (let i = 0; i < 24; i++) { const a = rand(TAU); addPart(P.x + Math.cos(a) * 0.8, P.y + 1 + Math.sin(a) * 0.8, P.z, Math.cos(a) * 3, Math.sin(a) * 3, 0, rand(0.4, 0.7), rand(0.08, 0.15), PW[type].col, 2); }
+}
+function popShield(o) {
+  pw.shield = 0; pw.grace = 1.2; Sound.fx.pop(); shake = Math.max(shake, 0.3); popup('Blase geplatzt!', '#9fe6ff');
+  for (let i = 0; i < 30; i++) { const a = rand(TAU), b = rand(-1, 1); addPart(P.x + Math.cos(a) * 1.2, P.y + 1 + b, P.z + Math.sin(a) * 1.2, Math.cos(a) * 4, b * 3 + 1, Math.sin(a) * 4, rand(0.4, 0.8), rand(0.08, 0.16), '#bff0ff', 3); }
+  smashObstacle(o);
+}
+function smashObstacle(o) {
+  o.hit = true; scene.remove(o.mesh, o.foam);
+  for (let i = 0; i < 30; i++) addPart(o.x + rand(-1, 1), rand(0, 1.5), o.z, rand(-4, 4), rand(2, 6), rand(-2, 3), rand(0.5, 0.9), rand(0.1, 0.2), '#ffffff');
+  if (o.type !== 'turtle') for (let i = 0; i < 12; i++) addPart(o.x + rand(-0.8, 0.8), rand(0.3, 1.5), o.z, rand(-4, 4), rand(3, 7), rand(-2, 3), rand(0.8, 1.2), rand(0.12, 0.24), o.type === 'log' ? '#8a5a32' : '#6f7a8a');
+}
+function updatePowers(dt) {
+  const play = state === 'play';
+  for (const k of ['magnet', 'shield', 'kite']) if (pw[k] > 0 && play) pw[k] = Math.max(0, pw[k] - dt);
+  pw.grace = Math.max(0, pw.grace - dt);
+  if (pw.kite > 0 && pw.kite - dt <= 0.0001 && play) pw.grace = Math.max(pw.grace, 1.2);
+  // Blasen auf der Strecke
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    const u = pickups[i]; u.t += dt;
+    if (u.z > P.z + 1.5 || (u.taken && u.t > 0.3)) { scene.remove(u.g); pickups.splice(i, 1); continue; }
+    if (u.taken) { const k = u.t / 0.3; u.g.scale.setScalar(1 + k * 0.8); u.g.children[0].material.opacity = 1 - k; continue; }
+    u.g.position.y = 1.1 + waveH(u.x, u.z, 2) * 0.5 + Math.sin(time * 2.4 + u.z) * 0.15; u.g.children[0].rotation.y = time;
+    if (play && P.alive && Math.abs(u.z - P.z) < 1 && Math.abs(u.x - P.x) < 1.1 && Math.abs(u.g.position.y - (P.y + 1)) < 2.2) { u.taken = true; u.t = 0; activate(u.type); }
+  }
+  // Magnet zieht Münzen vor dem Surfer heran
+  if (pw.magnet > 0 && play) for (const c of coins) if (!c.taken && c.z < P.z + 1 && c.z > P.z - 16 && Math.abs(c.x - P.x) < 7) { c.mag = true; }
+  for (const c of coins) if (c.mag && !c.taken) { c.x = damp(c.x, P.x, 7, dt); c.y = damp(c.y, P.y + 1, 7, dt); c.z = damp(c.z, P.z, 5, dt); }
+  if (pw.magnet > 0 && play && Math.random() < 0.6) { const a = time * 6 + rand(TAU); addPart(P.x + Math.cos(a) * 1.1, P.y + 0.6 + rand(1), P.z + Math.sin(a) * 1.1, -Math.cos(a) * 1.5, 0.5, -Math.sin(a) * 1.5 - P.speed, 0.4, rand(0.05, 0.09), Math.random() < 0.5 ? '#ff5a78' : '#ffd0d8', 0); }
+  // Anzeige
+  const box = $('pow'); let html = '';
+  for (const k of ['magnet', 'shield', 'kite']) if (pw[k] > 0 && play) html += `<div class="pw" style="--c:${PW[k].col}"><img src="${ICON_URL[k]}" alt=""><i style="width:${(pw[k] / PW[k].dur * 100).toFixed(0)}%"></i><span>${{ magnet: 'Magnet', shield: 'Blase', kite: 'Drachen' }[k]}</span></div>`;
+  if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
+}
+// kurze Texte über dem Surfer
+const popups = [];
+function popup(text, col) {
+  const el = document.createElement('div'); el.className = 'pop'; el.textContent = text; el.style.color = col; document.body.appendChild(el);
+  popups.push({ el, t: 0, slot: popups.filter(u => u.t < 0.6).length });
+}
+function updatePopups(dt) {
+  for (let i = popups.length - 1; i >= 0; i--) { const u = popups[i]; u.t += dt;
+    if (u.t > 1.2) { u.el.remove(); popups.splice(i, 1); continue; }
+    _v1.set(P.x, P.y + 2.7 + u.slot * 0.7 + u.t * 0.8, P.z).project(camera);
+    u.el.style.transform = `translate(${((_v1.x + 1) / 2 * innerWidth).toFixed(0)}px,${((1 - _v1.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%,-50%) scale(${(1 + Math.max(0, 0.25 - u.t) * 2).toFixed(2)})`;
+    u.el.style.opacity = String(Math.min(1, (1.2 - u.t) * 3)); }
+}
+
+/* =========================================================================
    Leben: Delfine springen neben der Strecke, Möwen kreisen, Segelboote am Horizont
    ========================================================================= */
 function makeDolphin() {
@@ -796,6 +915,7 @@ const CR = { body: new THREE.Vector3(), vel: new THREE.Vector3(), rot: 0, board:
 const camState = { pos: new THREE.Vector3(0, 3, 7), look: new THREE.Vector3(), fov: 0 };
 function reset() {
   for (const o of obstacles) scene.remove(o.mesh, o.foam); obstacles.length = 0; coins.length = 0;
+  for (const u of pickups) scene.remove(u.g); pickups.length = 0; pw.magnet = pw.shield = pw.kite = pw.grace = 0;
   Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, duck: 0 });
   runCoins = 0; startZ = P.z; nextRowZ = P.z - 45;
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
@@ -820,6 +940,8 @@ let camKick = 0, camKickV = 0, coinStreak = 0, lastCoinT = -9, camBlendT = 0;
 function spawnRow(z) {
   const r = Math.random(), lanes = [-1, 0, 1];
   const free = pick(lanes);
+  if (pw.kite > 1.2) { const l = pick(lanes); for (let i = 0; i < 8; i++) addCoin(l * LANE_W, 6.3, z + 8 - i * 2.2); return; }
+  if (Math.random() < 0.13 && P.z < startZ - 40) addPickup(pick(['magnet', 'shield', 'kite']), free, z + 9);
   if (r < 0.12 && P.z < startZ - 60) { addObstacle('arch', 0, z); for (let i = 0; i < 5; i++) addCoin(free * LANE_W, 0.55, z + 4 - i * 2); return; }
   if (r < 0.2) { const l = pick(lanes); addObstacle('turtle', l, z); for (let i = -2; i <= 2; i++) addCoin(l * LANE_W, 1.2 + Math.cos(i / 2.5 * Math.PI / 2) * 1.6, z + i * 1.4); return; }
   if (r < 0.5) { for (const l of lanes) if (l !== free && Math.random() < 0.7) addObstacle('rock', l, z); }
@@ -829,10 +951,12 @@ function spawnRow(z) {
 }
 function collide() {
   for (const o of obstacles) {
+    if (pw.kite > 0 || pw.grace > 0) break;
     if (o.hit || Math.abs(o.z - P.z) > o.d / 2 + 0.6) continue;
     if (Math.abs(o.x - P.x) > o.w / 2 + 0.25) continue;
     if (o.jump && P.y - waveH(P.x, P.z, 3) > o.h * 0.75) continue;
     if (o.duck && P.duck > 0 && !P.air) continue;
+    if (pw.shield > 0) { popShield(o); return; }
     o.hit = true; crash(o); return;
   }
   for (const c of coins) { if (c.taken) continue; if (Math.abs(c.z - P.z) < 0.8 && Math.abs(c.x - P.x) < 0.9 && Math.abs(c.y - (P.y + 0.9)) < 1.3) { c.taken = true; runCoins++; $('coins').textContent = runCoins; coinStreak = time - lastCoinT < 0.6 ? coinStreak + 1 : 0; lastCoinT = time; Sound.fx.coin(coinStreak);
@@ -859,7 +983,8 @@ function update(dt) {
     }
     P.px = P.x;
     const wy = waveH(P.x, P.z) + 0.06;
-    if (P.air) { P.airT += dt; P.vy -= 26 * dt; P.y += P.vy * dt; if (P.trick) P.trickT += dt; if (P.y <= wy) { P.y = wy; land(); } }
+    if (pw.kite > 0 && state === 'play') { P.air = true; P.vy = 0; P.airT += dt; P.y = damp(P.y, wy + 5.4, 2.4, dt); }
+    else if (P.air) { P.airT += dt; P.vy -= 26 * dt; P.y += P.vy * dt; if (P.trick) P.trickT += dt; if (P.y <= wy) { P.y = wy; land(); } }
     else P.y = damp(P.y, wy, 30, dt);
     P.landT = Math.max(0, P.landT - dt); P.duck = Math.max(0, P.duck - dt);
     // Gischt an den Kanten des Bretts
@@ -888,7 +1013,7 @@ function update(dt) {
   for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; if (c.z > P.z + 12) coins.splice(i, 1); else if (c.taken) c.t += dt; }
   for (const isl of islands) if (isl.position.z > P.z + 40) { isl.position.z -= islands.length * 38; isl.position.x = isl.userData.side * rand(16, 30); isl.rotation.y = rand(TAU); }
   islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, isl.userData.r * 0.97, 0));
-  updateDolphins(dt); updateGulls(dt); updateBoats();
+  updatePowers(dt); updatePopups(dt); updateDolphins(dt); updateGulls(dt); updateBoats();
   updateParts(dt);
 }
 
@@ -908,6 +1033,15 @@ function syncScene(dt) {
     surfer.root.position.copy(CR.body); surfer.root.rotation.set(CR.wet ? -CR.rot : CR.rot * 0.7, 0, CR.wet ? Math.sin(time * 3) * 0.15 : CR.rot); board.position.copy(CR.board); if (CR.wet) pose(time, dt);
     player.rotation.set(0, 0, 0);
   }
+  shieldMesh.visible = pw.shield > 0 && state === 'play' && (pw.shield > 2 || Math.floor(time * 8) % 2 === 0);
+  if (shieldMesh.visible) { shieldMesh.position.set(P.x, P.y + 1.05, P.z); const w = Math.sin(time * 5) * 0.03; shieldMesh.scale.set(1 + w, 1 - w, 1 + w); }
+  kite.visible = pw.kite > 0 && state === 'play' && (pw.kite > 1.2 || Math.floor(time * 8) % 2 === 0);
+  if (kite.visible) {
+    kite.position.set(P.x + Math.sin(time * 0.9) * 0.4, P.y + 3.3, P.z - 1.6); kite.rotation.set(-0.25, 0, Math.sin(time * 1.3) * 0.1);
+    const la = kite.userData.lines.geometry.attributes.position, hl = surfer.parts.handL.getWorldPosition(_v1), hr = surfer.parts.handR.getWorldPosition(_v2);
+    la.setXYZ(0, hl.x, hl.y, hl.z); la.setXYZ(1, kite.position.x - 1.5, kite.position.y + 0.2, kite.position.z); la.setXYZ(2, hr.x, hr.y, hr.z); la.setXYZ(3, kite.position.x + 1.5, kite.position.y + 0.2, kite.position.z); la.needsUpdate = true;
+  }
+  kite.userData.lines.visible = kite.visible;
   blob.position.set(P.x, waveH(P.x, P.z, 3) + 0.05, P.z + 0.05);
   blob.material.opacity = state === 'crash' ? 0 : clamp(1 - (P.y - waveH(P.x, P.z, 3)) * 0.3, 0.2, 1);
   // Münzen
@@ -928,9 +1062,9 @@ function syncScene(dt) {
   camKickV += (-170 * camKick - 15 * camKickV) * Math.min(dt, 1 / 30); camKick += camKickV * Math.min(dt, 1 / 30);
   const port = camera.aspect < 0.8;
   const back = port ? 5.2 : 5.6, up = port ? 3.7 : 3.6;
-  const tx = state === 'crash' ? P.x : P.x * 0.82, ty = (state === 'crash' ? P.y : Math.max(P.y, 0)) * 0.55 + up + camKick, tz = P.z + back;
-  camState.pos.x = damp(camState.pos.x, tx, 6, dt); camState.pos.y = damp(camState.pos.y, ty, 5, dt); camState.pos.z = tz;
-  camState.look.set(camState.pos.x * 0.6 + P.x * 0.4, P.y * 0.4 + 0.7, P.z - 6.5);
+  const flying = pw.kite > 0 && state === 'play', tx = state === 'crash' ? P.x : P.x * 0.82, ty = (state === 'crash' ? P.y : Math.max(P.y, 0)) * (flying ? 0.9 : 0.55) + up + camKick + (flying ? 1.2 : 0), tz = P.z + back;
+  camState.pos.x = damp(camState.pos.x, tx, 6, dt); camState.pos.y = damp(camState.pos.y, ty, 5, dt); camState.zOff = damp(camState.zOff || 0, flying ? 1.5 : 0, 3, dt); camState.pos.z = tz + camState.zOff;
+  camState.look.set(camState.pos.x * 0.6 + P.x * 0.4, P.y * (flying ? 0.85 : 0.4) + 0.7, P.z - 6.5);
   camera.position.copy(camState.pos);
   // Startbildschirm: Kamera kreist langsam um den Surfer, beim Start weicher Übergang in die Verfolgerkamera
   if (state === 'ready' || camBlendT < 1) {
@@ -997,4 +1131,4 @@ $('again').addEventListener('click', start);
 resize();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats };
+window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate };
