@@ -33,6 +33,9 @@ a.link{color:#bff4ff;font-weight:600}
 .pw{position:relative;width:132px;height:28px;border-radius:999px;background:rgba(13,42,74,.72);border:2px solid var(--c);overflow:hidden;font:600 14px/24px var(--ui);padding-left:6px}
 .pw img{position:relative;width:22px;height:22px;vertical-align:-6px;margin-right:6px}.pw i{position:absolute;left:0;top:0;bottom:0;background:var(--c);opacity:.45}.pw span{position:relative}
 .pop{position:fixed;left:0;top:0;font:400 clamp(22px,3.6vmin,38px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 #0d2a4a,2px 2px 0 #0d2a4a,-2px 2px 0 #0d2a4a,2px -2px 0 #0d2a4a,-2px -2px 0 #0d2a4a;pointer-events:none;white-space:nowrap;will-change:transform}
+.hud{pointer-events:none}.pbtn{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:3px solid #0d2a4a;background:linear-gradient(#5fd0f2,#1b8fd6);display:flex;gap:6px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 0 #0d2a4a}
+.pbtn i{width:6px;height:18px;background:#fff;border-radius:2px;box-shadow:0 0 0 2px #0d2a4a}
+.best{font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);color:#fff3b0}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
 </style>
 </head>
@@ -43,11 +46,13 @@ a.link{color:#bff4ff;font-weight:600}
 <div class="hud" id="hud" hidden>
   <div class="pill"><span class="coin"></span><span id="coins">0</span></div>
   <div class="pill"><span id="dist">0 m</span></div>
+  <button class="pbtn" id="pauseBtn" aria-label="Pause"><i></i><i></i></button>
 </div>
 <div class="screen" id="start">
   <h1>Surfers Surf<small>3D-Prototyp</small></h1>
   <p>Echte Wellen, Licht und Schatten mit Three.js. Weiche den Felsen aus, spring über Treibholz und sammle Münzen.</p>
   <button class="btn" id="go">Los!</button>
+  <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>
   <p class="hint"><a class="link" href="../">Zur 2D-Version</a></p>
 </div>
@@ -56,6 +61,11 @@ a.link{color:#bff4ff;font-weight:600}
   <p id="overStats"></p>
   <button class="btn" id="again">Nochmal</button>
   <p class="hint"><a class="link" href="../">Zur 2D-Version</a></p>
+</div>
+<div class="screen" id="pause" hidden>
+  <div class="big">Pause</div>
+  <button class="btn" id="resume">Weiter</button>
+  <button class="btn sea" id="quit">Zum Start</button>
 </div>
 <script type="module" src="./main.js"></script>
 </body>

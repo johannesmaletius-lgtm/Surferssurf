@@ -910,6 +910,9 @@ addEventListener('resize', resize);
 /* =========================================================================
    Spielablauf
    ========================================================================= */
+const BEST_KEY = 'surfersSurf3d.best';
+let best = 0; try { best = +localStorage.getItem(BEST_KEY) || 0; } catch (e) {}
+let recordShown = false;
 let state = 'ready', runCoins = 0, startZ = 0, nextRowZ = -40, crashT = 0, shake = 0, hitStop = 0;
 const CR = { body: new THREE.Vector3(), vel: new THREE.Vector3(), rot: 0, board: new THREE.Vector3(), bvel: new THREE.Vector3(), brot: new THREE.Vector3() };
 const camState = { pos: new THREE.Vector3(0, 3, 7), look: new THREE.Vector3(), fov: 0 };
@@ -917,9 +920,12 @@ function reset() {
   for (const o of obstacles) scene.remove(o.mesh, o.foam); obstacles.length = 0; coins.length = 0;
   for (const u of pickups) scene.remove(u.g); pickups.length = 0; pw.magnet = pw.shield = pw.kite = pw.grace = 0;
   Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, duck: 0 });
-  runCoins = 0; startZ = P.z; nextRowZ = P.z - 45;
+  runCoins = 0; startZ = P.z; nextRowZ = P.z - 45; recordShown = false; $('coins').textContent = '0';
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
 }
+function pause() { if (state !== 'play') return; state = 'pause'; $('pause').hidden = false; }
+function resume() { if (state !== 'pause') return; state = 'play'; $('pause').hidden = true; last = performance.now(); canvas.focus(); }
+function showBest() { $('best').textContent = best > 0 ? `Rekord: ${best} m` : ''; }
 function start() { const first = state === 'ready'; reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
 function moveLane(d) { if (state !== 'play' || !P.alive) return; const nl = clamp(P.lane + d, -1, 1); if (nl === P.lane) return; P.lane = nl; P.fromX = P.x; P.toX = nl * LANE_W; P.laneT = 0; Sound.fx.swish();
   for (let i = 0; i < 18; i++) addPart(P.x - d * 0.2, P.y + 0.1, P.z + rand(-0.4, 0.6), -d * rand(2, 5), rand(1.5, 4), rand(-1, 1), rand(0.4, 0.7), rand(0.08, 0.16), '#ffffff'); }
@@ -933,7 +939,7 @@ function duck() {
 }
 function jump() { if (state !== 'play' || !P.alive || P.air) return; P.air = true; P.vy = 9.2; P.airT = 0; P.trick = Math.random() < 0.4 ? null : pick(['grab', 'shaka', 'spin']); P.trickT = 0; Sound.fx.jump();
   for (let i = 0; i < 16; i++) addPart(P.x + rand(-0.4, 0.4), P.y + 0.05, P.z + rand(-0.6, 0.6), rand(-1.5, 1.5), rand(2, 5), rand(-1, 1), rand(0.4, 0.8), rand(0.08, 0.16), '#ffffff'); }
-function land() { P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6; Sound.fx.land(); if (P.duckBuf) { P.duckBuf = false; P.duck = DUCK_T * 0.8; }
+function land() { if (P.trick && P.trickT > 0.35 && state === 'play') popup({ grab: 'Grab!', shaka: 'Shaka!', spin: '360!' }[P.trick], '#ffe9b0'); P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6; Sound.fx.land(); if (P.duckBuf) { P.duckBuf = false; P.duck = DUCK_T * 0.8; }
   for (let i = 0; i < 30; i++) { const a = rand(TAU); addPart(P.x + Math.cos(a) * 0.5, P.y + 0.05, P.z + Math.sin(a) * 0.9, Math.cos(a) * rand(1, 3.5), rand(1.5, 4), Math.sin(a) * rand(1, 3) + 2, rand(0.4, 0.8), rand(0.09, 0.18), '#ffffff'); } }
 let camKick = 0, camKickV = 0, coinStreak = 0, lastCoinT = -9, camBlendT = 0;
 
@@ -996,14 +1002,21 @@ function update(dt) {
     if (play) {
       collide();
       while (nextRowZ > P.z - 130) { spawnRow(nextRowZ); nextRowZ -= rand(16, 24) * (1 + (P.speed - 14) / 40); }
-      $('dist').textContent = Math.floor(startZ - P.z) + ' m';
+      const dist = Math.floor(startZ - P.z); $('dist').textContent = dist + ' m';
+      if (!recordShown && best > 50 && dist > best) { recordShown = true; popup('Neuer Rekord!', '#b8ffb0'); Sound.fx.record(); }
     }
   } else {
     crashT += dt;
     CR.vel.y -= 18 * dt; CR.body.addScaledVector(CR.vel, dt); const surf = waveH(P.x + CR.body.x, P.z + CR.body.z) - 0.55 - P.y; if (CR.body.y < surf) { if (!CR.wet) { CR.wet = true; for (let i = 0; i < 40; i++) { const a = rand(TAU); addPart(P.x + CR.body.x + Math.cos(a) * 0.4, P.y + CR.body.y + 0.5, P.z + CR.body.z + Math.sin(a) * 0.4, Math.cos(a) * rand(1, 4), rand(2, 6), Math.sin(a) * rand(1, 4), rand(0.5, 1), rand(0.1, 0.22), '#ffffff'); } } CR.body.y = surf; CR.vel.set(CR.vel.x * 0.9, 0, CR.vel.z * 0.9); CR.rot = damp(CR.rot, Math.PI * 0.5, 4, dt); } else CR.rot += dt * 7;
     CR.bvel.y -= 18 * dt; CR.board.addScaledVector(CR.bvel, dt); if (CR.board.y + P.y < waveH(P.x + CR.board.x, P.z + CR.board.z) - P.y * 0) { CR.bvel.set(CR.bvel.x * 0.5, Math.abs(CR.bvel.y) * 0.25, CR.bvel.z * 0.5); CR.brot.multiplyScalar(0.6); }
     board.rotation.x += CR.brot.x * dt; board.rotation.y += CR.brot.y * dt; board.rotation.z += CR.brot.z * dt;
-    if (crashT > 1.3 && $('over').hidden) { $('over').hidden = false; $('overStats').textContent = `${Math.floor(startZ - P.z)} m · ${runCoins} Münzen`; $('hud').hidden = true; }
+    if (crashT > 1.3 && $('over').hidden) {
+      const dist = Math.floor(startZ - P.z), rec = dist > best;
+      if (rec) { best = dist; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
+      $('overText').textContent = rec && dist > 20 ? 'Neuer Rekord!' : pick(['Platsch!', 'Wipeout!', 'Autsch!']);
+      $('overStats').textContent = `${dist} m · ${runCoins} Münzen · Rekord ${best} m`;
+      $('over').hidden = false; $('hud').hidden = true; showBest();
+    }
   }
   // Hindernisse treiben auf den Wellen und verschwinden hinter der Kamera
   for (let i = obstacles.length - 1; i >= 0; i--) { const o = obstacles[i]; if (o.z > P.z + 15) { scene.remove(o.mesh, o.foam); obstacles.splice(i, 1); continue; }
@@ -1090,6 +1103,7 @@ let last = performance.now(), acc = 0, frames = 0, slowFor = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dtReal = Math.min(0.05, (now - last) / 1000); last = now;
+  if (state === 'pause') { composer.render(dtReal); return; }
   if (hitStop > 0) hitStop -= dtReal; else if (!(window.surf3d && surf3d.freeze)) update(dtReal);
   shake = Math.max(0, shake - dtReal * 1.8);
   syncScene(dtReal);
@@ -1105,6 +1119,8 @@ function frame(now) {
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.key.toLowerCase();
+  if ((k === 'escape' || k === 'p') && (state === 'play' || state === 'pause')) { state === 'play' ? pause() : resume(); e.preventDefault(); return; }
+  if (state === 'pause') { if (k === ' ' || k === 'enter') { resume(); e.preventDefault(); } return; }
   if (state !== 'play' && (k === ' ' || k === 'enter') && (state === 'ready' || !$('over').hidden)) { start(); e.preventDefault(); return; }
   if (k === 'arrowleft' || k === 'a') moveLane(-1);
   else if (k === 'arrowright' || k === 'd') moveLane(1);
@@ -1121,6 +1137,11 @@ canvas.addEventListener('pointerup', e => {
   if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else duck();
 });
 $('go').addEventListener('click', start);
+$('pauseBtn').addEventListener('click', e => { e.stopPropagation(); pause(); });
+$('resume').addEventListener('click', resume);
+$('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+showBest();
 const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
 sndBtn.addEventListener('click', e => { e.stopPropagation(); Sound.toggle(); syncSnd(); canvas.focus(); }); syncSnd();
 // Meeresrauschen schon im Startbildschirm, sobald der Browser Ton erlaubt (erste Berührung/Taste)
