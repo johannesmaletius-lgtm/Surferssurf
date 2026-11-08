@@ -2546,21 +2546,21 @@ function rasterSurfer(p, ox, oy, L, pz, fF, fB, s, t, opt = {}) {
   shadeBall(p, H[0], H[1], r, r * 1.05, RM.skin);
   p.ell(H[0], H[1] + r * .95, r * .45, r * .25, RM.skin[0]);
   const hairBall = (dx, dy, rx, ry, rm = RM.hair) => shadeBall(p, H[0] + dx, H[1] + dy, rx, ry, rm);
-  const ph = t * 12 * wind;
+  const ph = t * 12 * wind, hX = (pz.hairX || 0) * r, hY = pz.hairY || 0;
   switch (L.hair) {
     case 'messy':
       hairBall(0, -r * .15, r * 1.05, r * .98);
       for (let i = 0; i < 7; i++) {
-        const bx = H[0] + (i - 3) * r * .3, by = H[1] + r * .1, len = r * (1.2 + (i % 3) * .35);
-        const sw = Math.sin(ph + i * 1.3) * r * .35 * wind - F0 * r * .5 * wind;
+        const bx = H[0] + (i - 3) * r * .3, by = H[1] + r * .1, len = r * (1.2 + (i % 3) * .35) * clamp(1 + hY * .32, .45, 1.5);
+        const sw = Math.sin(ph + i * 1.3) * r * .3 * wind - F0 * r * .5 * wind + hX * (.55 + (i % 3) * .12);
         p.poly([[bx - r * .2, by - r * .2], [bx + r * .2, by - r * .2], [bx + sw + (i - 3) * r * .12, by + len]], (x, y) => RM.hair[i % 2 ? 2 : 1]);
       }
-      for (let i = 0; i < 4; i++) p.line(H[0] - r * (.7 - i * .35), H[1] - r * .7, H[0] - r * (.6 - i * .35) + Math.sin(ph + i) * r * .15, H[1] + r * .4, RM.hair[i % 2 ? 3 : 0]);
+      for (let i = 0; i < 4; i++) p.line(H[0] - r * (.7 - i * .35), H[1] - r * .7, H[0] - r * (.6 - i * .35) + Math.sin(ph + i) * r * .15 + hX * .25, H[1] + r * .4 * clamp(1 + hY * .3, .5, 1.4), RM.hair[i % 2 ? 3 : 0]);
       break;
     case 'ponytail': {
       hairBall(0, -r * .1, r * 1.04, r);
-      const sw = Math.sin(t * 4.5) * r * .5 - (pz.tilt || 0) * r;
-      const pts = [[H[0], H[1] - r * .2], [H[0] + sw * .4, H[1] + r * .9], [H[0] + sw, H[1] + r * 2.1]];
+      const sw = Math.sin(t * 4.5) * r * .35 - (pz.tilt || 0) * r + hX * 1.1, ly = clamp(1 + hY * .45, .35, 1.5);
+      const pts = [[H[0], H[1] - r * .2], [H[0] + sw * .4, H[1] + r * .9 * ly], [H[0] + sw, H[1] + r * 2.1 * ly]];
       for (let i = 1; i < pts.length; i++) p.line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], RM.hair[1], W(.08) * (1.3 - i * .3));
       p.line(H[0] - r * .3, H[1] - r * .1, H[0] + r * .3, H[1] - r * .1, C(L.flower), 2);
       const fx = H[0] - r * .85, fy = H[1] - r * .45; for (let k = 0; k < 5; k++) { const a = k / 5 * TAU; p.set(fx + Math.cos(a) * 1.5, fy + Math.sin(a) * 1.5, C(L.flower)); } p.set(fx, fy, C('#ffe36b'));
@@ -2573,7 +2573,7 @@ function rasterSurfer(p, ox, oy, L, pz, fF, fB, s, t, opt = {}) {
     case 'bandana': {
       hairBall(0, r * .05, r * 1.02, r * .95);
       p.ell(H[0], H[1] - r * .35, r * 1.08, r * .7, (x, y, nx, ny) => ny > .45 ? undefined : rampPick(RP('#7a1610', '#b8241c', '#e84a3a'), .6 - nx * .3 - ny * .3, x, y));
-      for (let k = 0; k < 2; k++) { const fl = Math.sin(t * 14 + k) * r * .4 * wind; p.line(H[0], H[1] + r * .1, H[0] + (k ? 1 : -1) * r * .5 + fl, H[1] + r * 1.1, C('#d63a2f'), W(.05)); }
+      for (let k = 0; k < 2; k++) { const fl = Math.sin(t * 14 + k) * r * .3 * wind + hX * (.7 + k * .2); p.line(H[0], H[1] + r * .1, H[0] + (k ? 1 : -1) * r * .5 + fl, H[1] + r * 1.1 * clamp(1 + hY * .4, .4, 1.5), C('#d63a2f'), W(.05)); }
       for (const [u, v] of [[-.5, -.6], [.2, -.75], [.55, -.4]]) p.set(H[0] + u * r, H[1] + v * r, C('#ffffff'));
       break;
     }
@@ -2705,6 +2705,18 @@ function updatePlayer(dt) {
   P.flinch = Math.max(0, P.flinch - dt);
   P.grace = Math.max(0, P.grace - dt);
   P.jumpBuf = Math.max(0, P.jumpBuf - dt);
+  updateSecondary(dt);
+}
+/* ---------- Nachschwingen: Haare und Arme hängen der Bewegung hinterher und federn aus ---------- */
+const SEC = { hx: 0, hvx: 0, hy: 0, hvy: 0, ax: 0, avx: 0 };
+function spring(o, k, v, target, stiff, damp2, dt) { o[v] += ((target - o[k]) * stiff - o[v] * damp2) * dt; o[k] += o[v] * dt; }
+function updateSecondary(dt) {
+  const tx = -P.lean * .9 + (P.stumble > 0 ? -P.stumbleDir * .6 * (P.stumble / P.stumbleDur) : 0);
+  const ty = P.air && !(run.pw.kite > 0) ? clamp(P.vy * .05, -1, 1) : 0;
+  spring(SEC, 'hx', 'hvx', tx, 55, 5.5, dt);
+  spring(SEC, 'hy', 'hvy', ty, 70, 6.5, dt);
+  spring(SEC, 'ax', 'avx', -P.lean * .6, 120, 11, dt);
+  SEC.hx = clamp(SEC.hx, -1.6, 1.6); SEC.hy = clamp(SEC.hy, -1.4, 1.4);
 }
 
 /* ---------- Posen: alles, was den Surfer lebendig macht ---------- */
@@ -2737,6 +2749,8 @@ function computePose(t) {
       }
     } else if (P.fastDrop) { pz.crouch = .55; pz.armL = { a: 2.6, e: .2, f: 0 }; pz.armR = { a: 2.6, e: .2, f: 0 }; }
   }
+  pz.hairX = SEC.hx; pz.hairY = SEC.hy;
+  { const lag = SEC.ax + P.lean * .6; pz.armL.a -= lag * .55; pz.armR.a += lag * .55; pz.armL.e += Math.abs(lag) * .25; pz.armR.e += Math.abs(lag) * .25; pz.tilt += lag * .12; }
   if (P.landT > 0) { const ph = 1 - P.landT / .34, c = Math.exp(-ph * 4.2) * Math.cos(ph * 7.5) * smooth01(P.landT / .06); pz.crouch += .5 * c; pz.armL.a += .35 * c; pz.armR.a += .35 * c; pz.armL.e += .2 * Math.max(0, c); pz.armR.e += .2 * Math.max(0, c); pz.fwd += .22 * c; pz.boardPitch -= .05 * c; }
   if (P.duck > 0) {
     const k = smooth01((DUCK_TIME - P.duck) / .09) * smooth01(P.duck / .14);
@@ -4468,7 +4482,7 @@ function drawPart(pt) {
   switch (pt.type) {
     case 'drop': { const r = Math.max(.8, pt.size * p.s * .45) * 1.25; ctx.globalAlpha = Math.min(1, k * 2); ctx.drawImage(dotSpr(pt.col), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
     case 'foam': { const r = Math.max(1.5, .13 * p.s) * (1.25 - k * .35), sp = pt.size * (1.6 - k) * p.s, spr = dotSpr(k > .5 ? '#ffffff' : WL().foam[1]); ctx.globalAlpha = Math.min(1, k * 1.3) * .85; for (const sd of [-1, 1]) ctx.drawImage(spr, p.x + sd * sp - r, p.y - r * .5, r * 2, r); ctx.globalAlpha = 1; break; }
-    case 'ring': { const r = pt.size * (1.3 - k) * p.s; if (r < 1) break; const c = k > .4 ? '#ffffff' : WL().foam[2], sz = Math.max(1, Math.round(.1 * p.s)); for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) frect(p.x + sd * r * (.6 + i * .2) - sz / 2, p.y + i % 2, sz * (2 - i * .5), Math.max(1, sz * .6), c); break; }
+    case 'ring': { const r = pt.size * (1.3 - k) * p.s; if (r < 1) break; const fl = clamp(V.camY / p.zc, .12, .5); ctx.globalAlpha = Math.min(1, k * 1.6) * .8; ctx.strokeStyle = k > .4 ? '#ffffff' : WL().foam[1]; ctx.lineWidth = Math.max(1, .12 * p.s * (.4 + k)); ctx.beginPath(); ctx.ellipse(p.x, p.y, r, r * fl, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha = .25 * k; ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.globalAlpha = 1; break; }
     case 'spark': { const r = Math.max(2, pt.size * p.s * (.5 + k * .7)) * 1.6; ctx.globalAlpha = Math.min(1, k * 2.5); ctx.drawImage(starSpr(pt.col), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
     case 'ember': { const r = Math.max(1, Math.round(pt.size * p.s * (.5 + k * .6))); frect(p.x - r, p.y - r, r * 2, r * 2, '#ff6a1a'); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r), Math.max(1, r), pt.col); break; }
     case 'chunk': { const r = Math.max(2, Math.round(pt.size * p.s)); frect(p.x - r / 2 - 1, p.y - r / 2 - 1, r + 2, r + 2, OUT); frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r / 2), 1, '#ffffff55'); break; }
