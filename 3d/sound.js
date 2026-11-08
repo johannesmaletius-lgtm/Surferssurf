@@ -77,6 +77,7 @@ export const fx = {
   record() { [0, 4, 7, 12, 7, 12, 16].forEach((s, i) => tone({ f: 523 * 2 ** (s / 12), type: 'triangle', dur: 0.22, vol: 0.12, delay: i * 0.09 })); },
   duck() { hiss({ dur: 0.5, vol: 0.34, f: 400, f2: 1800, type: 'lowpass' }); tone({ f: 180, f2: 90, dur: 0.25, vol: 0.1 }); },
   dolphin(pan, vol) { hiss({ dur: 0.55, vol: 0.25 * vol, f: 1800, f2: 300, type: 'lowpass', pan }); tone({ f: 1900, f2: 2600, type: 'sine', dur: 0.12, vol: 0.03 * vol, delay: 0.05 }); },
+  horn() { tone({ f: 233, type: 'sawtooth', dur: 0.32, vol: 0.07 }); tone({ f: 294, type: 'sawtooth', dur: 0.32, vol: 0.06 }); tone({ f: 233, type: 'sawtooth', dur: 0.45, vol: 0.07, delay: 0.4 }); tone({ f: 294, type: 'sawtooth', dur: 0.45, vol: 0.06, delay: 0.4 }); },
   start() { [0, 4, 7, 12].forEach((s, i) => tone({ f: 587 * 2 ** (s / 12), type: 'triangle', dur: 0.2, vol: 0.12, delay: i * 0.06 })); },
 };
 
