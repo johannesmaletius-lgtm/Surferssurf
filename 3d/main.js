@@ -256,34 +256,74 @@ function ik(a, t, l1, l2, bend, out) {
   const dn = d.clone().normalize(); const side = bend.clone().sub(dn.clone().multiplyScalar(bend.dot(dn))).normalize();
   return out.copy(a).addScaledVector(dn, x).addScaledVector(side, h);
 }
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const _mb = new THREE.Matrix4(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3();
+// Glied mit voller Ausrichtung: Längsachse a→b, Querachse entlang „side“ (für nicht runde Teile wie den Oberkörper)
+function placeBasis(mesh, a, b, side) {
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  _by.copy(b).sub(a).normalize(); _bx.copy(side).addScaledVector(_by, -side.dot(_by)).normalize(); _bz.crossVectors(_bx, _by);
+  _mb.makeBasis(_bx, _by, _bz); mesh.quaternion.setFromRotationMatrix(_mb);
+}
+function suitTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d');
+  x.fillStyle = KAI.suit; x.fillRect(0, 0, 256, 256);
+  // Seitenpaneele (u≈0,25 und 0,75 = Flanken), Akzentlinien, Brustband
+  for (const u of [64, 192]) { x.fillStyle = KAI.suitL; x.beginPath(); x.ellipse(u, 150, 26, 95, 0, 0, TAU); x.fill(); x.strokeStyle = KAI.accent; x.lineWidth = 4; x.stroke(); }
+  x.fillStyle = KAI.accent; x.fillRect(0, 196, 256, 7);
+  // Reißverschluss am Rücken (u = 0 / 1 → zur Kamera)
+  x.fillStyle = '#0c1118'; x.fillRect(0, 40, 9, 190); x.fillRect(247, 40, 9, 190);
+  x.fillStyle = '#9fb8d0'; for (let y = 44; y < 228; y += 9) { x.fillRect(0, y, 5, 4); x.fillRect(251, y + 4, 5, 4); }
+  x.fillStyle = KAI.accent; x.fillRect(10, 40, 4, 190); x.fillRect(242, 40, 4, 190);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
 function makeSurfer() {
   const root = new THREE.Group();
-  const M = { skin: toon(KAI.skin), suit: toon(KAI.suit), suitL: toon(KAI.suitL), acc: toon(KAI.accent), hair: toon(KAI.hair), hairD: toon(KAI.hairD) };
+  const M = { skin: toon(KAI.skin), skinD: toon('#d08a5a'), suit: toon(KAI.suit), suitL: toon(KAI.suitL), acc: toon(KAI.accent), hair: toon(KAI.hair), hairD: toon(KAI.hairD), ink: new THREE.MeshBasicMaterial({ color: '#141a24' }) };
+  // Oberkörper: tailliert, breite Schultern, vorne/hinten etwas flacher
+  const prof = [[0.001, -0.31], [0.12, -0.3], [0.17, -0.25], [0.178, -0.13], [0.162, -0.02], [0.185, 0.1], [0.212, 0.2], [0.205, 0.27], [0.16, 0.32], [0.08, 0.35], [0.001, 0.356]].map(([r, y]) => new THREE.Vector2(r, y));
+  const torsoGeo = new THREE.LatheGeometry(prof, 28); torsoGeo.scale(1, 1, 0.8);
+  const torso = withOutline(new THREE.Mesh(torsoGeo, toon('#ffffff', { map: suitTexture() })), 0.018);
+  const hand = () => { const h = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 10), M.skin), 0.014); h.geometry = h.geometry.clone().scale(0.85, 0.72, 1.2); h.children[0].geometry = h.geometry;
+    const th = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), M.skin); th.position.set(0.05, 0.02, -0.02); h.add(th); return h; };
+  const foot = () => { const g = new THREE.CapsuleGeometry(0.058, 0.16, 4, 10); g.rotateX(Math.PI / 2); g.scale(1, 0.7, 1); return withOutline(new THREE.Mesh(g, M.skin), 0.014); };
   const parts = {
-    torso: limb(0.2, 0.34, M.suit), hips: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 12), M.suit), 0.018),
-    thighL: limb(0.095, 0.36, M.suit), thighR: limb(0.095, 0.36, M.suit), shinL: limb(0.075, 0.36, M.skin), shinR: limb(0.075, 0.36, M.skin),
-    upL: limb(0.068, 0.24, M.suit), upR: limb(0.068, 0.24, M.suit), loL: limb(0.055, 0.22, M.skin), loR: limb(0.055, 0.22, M.skin),
-    handL: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10), M.skin), 0.016), handR: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10), M.skin), 0.016),
-    footL: withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.26), M.skin), 0.016), footR: withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.26), M.skin), 0.016),
-    neck: limb(0.06, 0.06, M.skin),
+    torso, hips: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12).scale(1, 0.85, 0.9), M.suit), 0.018),
+    thighL: limb(0.1, 0.34, M.suit), thighR: limb(0.1, 0.34, M.suit), shinL: limb(0.074, 0.37, M.skin), shinR: limb(0.074, 0.37, M.skin),
+    upL: limb(0.07, 0.23, M.suit), upR: limb(0.07, 0.23, M.suit), loL: limb(0.054, 0.22, M.skin), loR: limb(0.054, 0.22, M.skin),
+    handL: hand(), handR: hand(), footL: foot(), footR: foot(),
+    neck: limb(0.062, 0.07, M.skin),
+    shoulderL: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.085, 12, 10), M.suit), 0.016), shoulderR: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.085, 12, 10), M.suit), 0.016),
   };
-  // Akzente: Kniebänder, Armbänder, Rückenstreifen
-  for (const k of ['thighL', 'thighR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.093, 0.022, 6, 16), M.acc); b.rotation.x = Math.PI / 2; b.position.y = -0.2; parts[k].add(b); }
-  for (const k of ['loL', 'loR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.016, 6, 14), M.acc); b.rotation.x = Math.PI / 2; b.position.y = -0.1; parts[k].add(b); }
-  { const s = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.5, 0.02), M.acc); s.position.set(0, 0, -0.205); parts.torso.add(s); }
-  // Kopf mit wilder blonder Mähne
+  for (const k of ['thighL', 'thighR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.098, 0.02, 6, 18), M.acc); b.rotation.x = Math.PI / 2; b.position.y = -0.2; parts[k].add(b); }
+  for (const k of ['upL', 'upR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.016, 6, 14), M.acc); b.rotation.x = Math.PI / 2; b.position.y = -0.14; parts[k].add(b); }
+  for (const k of ['loL', 'loR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.016, 6, 14), M.acc); b.rotation.x = Math.PI / 2; b.position.y = -0.12; parts[k].add(b); }
+  // Kopf: Gesicht schaut nach -Z (Fahrtrichtung)
   const head = new THREE.Group();
-  const skull = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 16), M.skin), 0.018); skull.scale.set(1, 1.08, 1); head.add(skull);
-  const hair = new THREE.Group(); head.add(hair);
-  const cap = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.172, 18, 12, 0, TAU, 0, Math.PI * 0.62), M.hair), 0.016); cap.position.y = 0.025; hair.add(cap);
-  const strands = [];
-  for (let i = 0; i < 11; i++) {
-    const a = -Math.PI * 0.95 + (i / 10) * Math.PI * 1.9, len = 0.22 + (i % 3) * 0.06;
-    const g = new THREE.ConeGeometry(0.06, len, 6); g.translate(0, -len / 2, 0);
-    const s = withOutline(new THREE.Mesh(g, i % 2 ? M.hair : M.hairD), 0.012);
-    const piv = new THREE.Group(); piv.position.set(Math.sin(a) * 0.15, 0.06, Math.cos(a) * 0.15); piv.add(s);
-    piv.userData = { a, base: new THREE.Euler(Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.55) }; hair.add(piv); strands.push(piv);
+  const skull = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.155, 22, 16).scale(0.95, 1.08, 1), M.skin), 0.016); head.add(skull);
+  for (const sd of [-1, 1]) {
+    const ear = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8).scale(0.6, 1, 0.9), M.skin), 0.01); ear.position.set(sd * 0.148, -0.01, 0.01); head.add(ear);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), M.ink); eye.position.set(sd * 0.055, 0.015, -0.14); head.add(eye);
   }
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), M.skinD); nose.position.set(0, -0.025, -0.155); head.add(nose);
+  const hair = new THREE.Group(); head.add(hair);
+  const cap = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.168, 20, 12, 0, TAU, 0, Math.PI * 0.55), M.hair), 0.014); cap.position.y = 0.03; hair.add(cap);
+  const back = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.166, 18, 12, Math.PI * 0.05, Math.PI * 0.9, Math.PI * 0.2, Math.PI * 0.6), M.hair), 0.014); back.position.set(0, 0.01, 0.012); hair.add(back);
+  // Strähnen setzen am Scheitel an und sind nach hinten gekämmt; vorne nur ein kurzer Wuschel über der Stirn
+  const strands = [];
+  const addStrand = (a, el, len, r, pitch, yaw, mat) => {
+    const g = new THREE.ConeGeometry(r, len, 7); g.translate(0, len / 2, 0); g.rotateX(Math.PI / 2); // Spitze zeigt nach +Z (hinten)
+    const sMesh = withOutline(new THREE.Mesh(g, mat), 0.01);
+    const piv = new THREE.Group(); piv.position.set(Math.sin(a) * Math.cos(el) * 0.15, Math.sin(el) * 0.15 + 0.03, Math.cos(a) * Math.cos(el) * 0.15); piv.add(sMesh);
+    piv.userData = { pitch, yaw, ph: Math.random() * TAU, back: Math.cos(a) * 0.5 + 0.5 }; hair.add(piv); strands.push(piv);
+  };
+  // Oberkopf nach hinten
+  for (let i = 0; i < 5; i++) addStrand((i - 2) * 0.35, 1.05, 0.3 + (i % 2) * 0.06, 0.062, -0.35, (i - 2) * 0.16, i % 2 ? M.hairD : M.hair);
+  // Hinterkopf: lange Mähne bis in den Nacken
+  for (let i = 0; i < 7; i++) addStrand((i - 3) * 0.32, 0.45, 0.32 + ((i * 5) % 3) * 0.05, 0.065, 0.55, (i - 3) * 0.14, i % 2 ? M.hair : M.hairD);
+  // Seiten hinter den Ohren
+  for (const sd of [-1, 1]) for (let i = 0; i < 2; i++) addStrand(sd * (1.9 + i * 0.35), 0.35 - i * 0.15, 0.24, 0.055, 0.75, sd * (0.45 + i * 0.1), i ? M.hairD : M.hair);
+  // Wuschel vorne: kurz, nach oben/vorne
+  for (let i = 0; i < 3; i++) addStrand(Math.PI + (i - 1) * 0.4, 0.95, 0.13, 0.05, -2.3, (i - 1) * 0.3, M.hair);
   parts.head = head;
   for (const k in parts) root.add(parts[k]);
   return { root, parts, strands };
@@ -360,18 +400,26 @@ function pose(t, dt) {
   ik(J.shL, J.hdL, 0.31, 0.28, _v1.set(0, 0.35, 1), J.elL);
   ik(J.shR, J.hdR, 0.31, 0.28, _v1.set(0, 0.35, 1), J.elR);
   const p = surfer.parts;
-  place(p.torso, J.hip, J.chest); p.hips.position.copy(J.hip);
+  placeBasis(p.torso, _v3.copy(J.hip).lerp(J.chest, -0.04), _v2.copy(J.chest).lerp(J.hip, -0.06), _v1.copy(J.shR).sub(J.shL)); p.hips.position.copy(J.hip); p.hips.quaternion.copy(p.torso.quaternion);
+  p.shoulderL.position.copy(J.shL); p.shoulderR.position.copy(J.shR);
   place(p.neck, J.chest, J.head);
   place(p.thighL, J.hpL, J.knL); place(p.shinL, J.knL, J.ftL); place(p.thighR, J.hpR, J.knR); place(p.shinR, J.knR, J.ftR);
   place(p.upL, J.shL, J.elL); place(p.loL, J.elL, J.hdL); place(p.upR, J.shR, J.elR); place(p.loR, J.elR, J.hdR);
   p.handL.position.copy(J.hdL); p.handR.position.copy(J.hdR);
-  p.footL.position.copy(J.ftL).y -= 0.05; p.footR.position.copy(J.ftR).y -= 0.05;
+  p.handL.quaternion.setFromUnitVectors(Z_AXIS, _v1.copy(J.hdL).sub(J.elL).normalize()); p.handR.quaternion.setFromUnitVectors(Z_AXIS, _v1.copy(J.hdR).sub(J.elR).normalize());
+  p.footL.position.copy(J.ftL).y -= 0.06; p.footR.position.copy(J.ftR).y -= 0.06; p.footL.rotation.y = 0.5; p.footR.rotation.y = 0.5;
   p.head.position.copy(J.head); p.head.rotation.set(-0.1, -lean * 0.2, -tilt * 0.6);
   // Haare federn der Bewegung hinterher
   SEC.hvx += ((-lean * 0.9 - SEC.hx) * 55 - SEC.hvx * 5.5) * dt; SEC.hx += SEC.hvx * dt;
   const ty = P.air ? clamp(P.vy * 0.06, -1, 1) : 0;
   SEC.hvy += ((ty - SEC.hy) * 70 - SEC.hvy * 6.5) * dt; SEC.hy += SEC.hvy * dt;
-  for (const s of surfer.strands) { const b = s.userData.base; s.rotation.set(b.x + 0.35 + SEC.hy * 0.5 + Math.sin(t * 9 + s.userData.a * 3) * 0.06 * P.speed / 20, 0, b.z + SEC.hx * 0.5); }
+  // Fahrtwind weht nach hinten (+Z), Sprung lässt hängen, Fall lässt fliegen
+  const wind = state === 'crash' ? 0.1 : clamp(P.speed / 26, 0.3, 1.2);
+  for (const s of surfer.strands) {
+    const u = s.userData, fl = Math.sin(t * 11 + u.ph) * 0.07 * wind * u.back;
+    // pitch > 0 = Spitze sinkt nach unten; Wind hebt die Mähne an, Sprung lässt sie hängen
+    s.rotation.set(u.pitch * (1 - wind * 0.35) + SEC.hy * 0.5 * u.back + fl, u.yaw - SEC.hx * 0.5 * u.back, 0, 'YXZ');
+  }
 }
 
 /* =========================================================================
@@ -729,6 +777,7 @@ function syncScene(dt) {
   camera.position.copy(camState.pos);
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
+  if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]); camera.lookAt(P.x, P.y + 1.0, P.z); }
   const fovT = (port ? 68 : 62) + clamp((P.speed - 14) / 16, 0, 1) * 6;
   camState.fov = damp(camState.fov || fovT, fovT, 2, dt);
   if (Math.abs(camera.fov - camState.fov) > 0.01) { camera.fov = camState.fov; camera.updateProjectionMatrix(); }
