@@ -37,9 +37,9 @@ scene.fog = new THREE.Fog(HORIZON, 120, 900);
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 48), THREE.MathUtils.degToRad(28)); // hinten rechts: Surfer gut beleuchtet, keine Blendung
 // Himmel: Verlauf, Sonne mit Hof, weiche Wolken – alles im Shader, keine Bilddateien
 const skyMat = new THREE.ShaderMaterial({
-  uniforms: { uZenith: { value: ZENITH }, uHorizon: { value: HORIZON }, uSun: { value: SUN_DIR }, uSunCol: { value: new THREE.Color('#fff2cf') }, uTime: { value: 0 } },
+  uniforms: { uZenith: { value: ZENITH }, uHorizon: { value: HORIZON }, uSun: { value: SUN_DIR }, uSunCol: { value: new THREE.Color('#fff2cf') }, uTime: { value: 0 }, uCloud: { value: new THREE.Color('#ffffff') }, uGlow: { value: 0 } },
   vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.); gl_Position = p.xyww; }`,
-  fragmentShader: `uniform vec3 uZenith, uHorizon, uSun, uSunCol; uniform float uTime; varying vec3 vDir;
+  fragmentShader: `uniform vec3 uZenith, uHorizon, uSun, uSunCol, uCloud; uniform float uTime, uGlow; varying vec3 vDir;
     float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
     float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++) { v += a * n2(p); p = p * 2.03 + 7.1; a *= .5; } return v; }
@@ -48,11 +48,14 @@ const skyMat = new THREE.ShaderMaterial({
       vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0., 1.), .5));
       float sd = max(dot(d, uSun), 0.);
       col += uSunCol * (pow(sd, 1400.) * 8. + pow(sd, 24.) * .22 + pow(sd, 4.) * .07);
+      // warmes Glühen am Horizont in Richtung Sonne (Abendstimmung)
+      float az = max(dot(normalize(vec3(d.x, 0., d.z) + 1e-4), normalize(vec3(uSun.x, 0., uSun.z) + 1e-4)), 0.);
+      col += uSunCol * pow(az, 3.) * smoothstep(.4, 0., h) * uGlow;
       vec2 uv = d.xz / max(h + .08, .06) * .55 + vec2(uTime * .004, 0.);
       float c = fbm(uv * 1.3);
       float cm = smoothstep(.58, .74, c) * smoothstep(.0, .2, h);
       float shade = smoothstep(.5, .85, fbm(uv * 1.3 + vec2(.05, .09)));
-      vec3 cc = mix(vec3(1.02, 1.02, 1.03), mix(uHorizon, uZenith, .25) * 1.02, shade * .55) + uSunCol * pow(sd, 6.) * .25;
+      vec3 cc = mix(uCloud * 1.02, mix(uHorizon, uZenith, .25) * 1.02, shade * .55) + uSunCol * pow(sd, 6.) * .25 + uSunCol * pow(az, 4.) * uGlow * .3 * (1. - shade);
       col = mix(col, cc, cm * .9);
       col = mix(col, uHorizon, smoothstep(.06, -.02, h));
       gl_FragColor = vec4(col, 1.);
@@ -74,13 +77,16 @@ fill.position.set(-4, 6, 12);
 scene.add(fill, fill.target);
 
 // Umgebungslicht aus dem Himmel (für glänzende Münzen)
-{
+const envGround = new THREE.MeshBasicMaterial({ color: '#0d5f86' });
+function buildEnv() {
   const pm = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene(); const s2 = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), skyMat); envScene.add(s2);
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 24), new THREE.MeshBasicMaterial({ color: '#0d5f86' })); ground.rotation.x = -Math.PI / 2; ground.position.y = -2; envScene.add(ground);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 24), envGround); ground.rotation.x = -Math.PI / 2; ground.position.y = -2; envScene.add(ground);
+  if (scene.environment) scene.environment.dispose();
   scene.environment = pm.fromScene(envScene, 0, 0.1, 300).texture;
   pm.dispose();
 }
+buildEnv();
 
 /* =========================================================================
    Wellen: dieselben Gerstner-Wellen auf CPU (Brett, Bojen) und GPU (Wasser)
@@ -136,7 +142,7 @@ const waterMat = new THREE.ShaderMaterial({
     uSun: { value: SUN_DIR.clone() }, uDeep: { value: new THREE.Color('#05486e') }, uShallow: { value: new THREE.Color('#1fb8c8') }, uSss: { value: new THREE.Color('#5ff0e0') },
     uZenith: { value: ZENITH.clone() }, uHorizon: { value: HORIZON.clone() }, uSunCol: { value: new THREE.Color('#fff4d8') },
     uWake: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uIsl: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, -1, 0)) }, uLagoon: { value: new THREE.Color('#38e0cf') }, uSand: { value: new THREE.Color('#bff3dc') },
+    uSpec: { value: 1 }, uIsl: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, -1, 0)) }, uLagoon: { value: new THREE.Color('#38e0cf') }, uSand: { value: new THREE.Color('#bff3dc') },
   },
   vertexShader: /* glsl */`
     uniform float uTime; uniform vec3 uCam; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6];
@@ -151,7 +157,7 @@ const waterMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * viewMatrix * wp;
     }`,
   fragmentShader: /* glsl */`
-    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol, uLagoon, uSand; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6]; uniform vec4 uIsl[12];
+    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol, uLagoon, uSand; uniform float uSpec; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6]; uniform vec4 uIsl[12];
     varying vec3 vWorld; varying float vH;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
@@ -187,7 +193,7 @@ const waterMat = new THREE.ShaderMaterial({
       vec3 col = mix(water, skyc, fres * .7 * (1. - lagoon * .4));
       // breiter, weicher Sonnenglanz (keine Glitzerpunkte)
       float sp = max(dot(R, uSun), 0.);
-      col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05);
+      col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05) * uSpec;
       // Schaum auf hohen Kämmen
       float fn = noise(xz * .9 + uTime * .2) * .6 + noise(xz * 2.3 - uTime * .3) * .4;
       float lace = noise(xz * 2.2 + vec2(uTime * .3, 0.)) * .6 + noise(xz * 4.7 - vec2(0., uTime * .4)) * .4;
@@ -908,6 +914,34 @@ function resize() {
 addEventListener('resize', resize);
 
 /* =========================================================================
+   Welten (Tageszeiten): Farben, Sonne, Licht und Wasser wechseln gemeinsam
+   ========================================================================= */
+const THEMES = {
+  mittag: { name: 'Mittag', zenith: '#2a7fd4', horizon: '#c4e8f5', el: 48, az: 28, sunCol: '#fff2cf', cloud: '#ffffff', glow: 0, deep: '#05486e', shallow: '#1fb8c8', sss: '#5ff0e0', lagoon: '#38e0cf', sand: '#bff3dc',
+    hemi: ['#cfeeff', '#1a6f8c', 1.15], sun: ['#fff1d6', 2.4], fill: ['#9fd8ff', 0.9], spec: 1, bloom: 0.28, ground: '#0d5f86', fogFar: 900 },
+  abend: { name: 'Abend', zenith: '#2b3a8f', horizon: '#ffb27a', el: 12, az: 156, sunCol: '#ffcf86', cloud: '#ffb4a0', glow: 0.75, deep: '#173b6c', shallow: '#2b7494', sss: '#ff9a62', lagoon: '#47aba8', sand: '#f3c6a0',
+    hemi: ['#ffc39a', '#283a6a', 1.05], sun: ['#ffae6a', 2.1], fill: ['#ff9fc4', 1.0], spec: 0.55, bloom: 0.42, ground: '#3a3f6e', fogFar: 760 },
+};
+const THEME_KEY = 'surfersSurf3d.world';
+let themeId = 'mittag'; try { const t = localStorage.getItem(THEME_KEY); if (THEMES[t]) themeId = t; } catch (e) {}
+function applyTheme(id) {
+  const T = THEMES[id] || THEMES.mittag; themeId = id;
+  ZENITH.set(T.zenith); HORIZON.set(T.horizon);
+  SUN_DIR.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - T.el), THREE.MathUtils.degToRad(T.az));
+  const su2 = skyMat.uniforms; su2.uSunCol.value.set(T.sunCol); su2.uCloud.value.set(T.cloud); su2.uGlow.value = T.glow;
+  const wu = waterMat.uniforms; wu.uSun.value.copy(SUN_DIR); wu.uZenith.value.set(T.zenith); wu.uHorizon.value.set(T.horizon); wu.uSunCol.value.set(T.sunCol);
+  wu.uDeep.value.set(T.deep); wu.uShallow.value.set(T.shallow); wu.uSss.value.set(T.sss); wu.uLagoon.value.set(T.lagoon); wu.uSand.value.set(T.sand); wu.uSpec.value = T.spec;
+  scene.fog.color.set(T.horizon); scene.fog.far = T.fogFar;
+  hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]); hemi.intensity = T.hemi[2];
+  sun.color.set(T.sun[0]); sun.intensity = T.sun[1]; fill.color.set(T.fill[0]); fill.intensity = T.fill[1];
+  bloom.strength = T.bloom; envGround.color.set(T.ground);
+  document.body.style.background = T.horizon;
+  buildEnv();
+  try { localStorage.setItem(THEME_KEY, id); } catch (e) {}
+  document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('on', b.dataset.w === id));
+}
+
+/* =========================================================================
    Spielablauf
    ========================================================================= */
 const BEST_KEY = 'surfersSurf3d.best';
@@ -1137,6 +1171,8 @@ canvas.addEventListener('pointerup', e => {
   if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else duck();
 });
 $('go').addEventListener('click', start);
+document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); applyTheme(b.dataset.w); }));
+applyTheme(themeId);
 $('pauseBtn').addEventListener('click', e => { e.stopPropagation(); pause(); });
 $('resume').addEventListener('click', resume);
 $('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
@@ -1152,4 +1188,4 @@ $('again').addEventListener('click', start);
 resize();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate };
+window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };

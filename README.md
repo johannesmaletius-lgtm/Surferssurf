@@ -14,6 +14,9 @@ https://johannesmaletius-lgtm.github.io/Surferssurf/3d/
 - `3d/vendor/three.min.js` – Three.js samt Zusatzmodulen in einer Datei, Lizenz in `3d/vendor/LICENSE-three.txt`
 - `3d/tools/vendor-entry.js` – so wird die Vendor-Datei neu gebaut (Anleitung steht oben in der Datei)
 
+Steuerung: Pfeiltasten/WASD oder Wischen – links/rechts ausweichen, hoch springen, runter ducken (unter Felsbögen durch), Esc pausiert.
+Welten: Mittag und Abend (Auswahl im Startbildschirm). Power-ups: Magnet, Schutzblase, Drachen.
+
 Lokal testen: im Projektordner `python3 -m http.server` starten und `http://localhost:8000/3d/` öffnen
 (Module laden nicht über `file://`).
 

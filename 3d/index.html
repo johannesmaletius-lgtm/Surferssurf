@@ -35,6 +35,8 @@ a.link{color:#bff4ff;font-weight:600}
 .pop{position:fixed;left:0;top:0;font:400 clamp(22px,3.6vmin,38px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 #0d2a4a,2px 2px 0 #0d2a4a,-2px 2px 0 #0d2a4a,2px -2px 0 #0d2a4a,-2px -2px 0 #0d2a4a;pointer-events:none;white-space:nowrap;will-change:transform}
 .hud{pointer-events:none}.pbtn{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:3px solid #0d2a4a;background:linear-gradient(#5fd0f2,#1b8fd6);display:flex;gap:6px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 0 #0d2a4a}
 .pbtn i{width:6px;height:18px;background:#fff;border-radius:2px;box-shadow:0 0 0 2px #0d2a4a}
+.worlds{display:flex;gap:10px}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
+.wbtn.on{background:#ffd23f;color:#0d2a4a;border-color:#0d2a4a;box-shadow:0 3px 0 #0d2a4a}
 .best{font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);color:#fff3b0}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
 </style>
@@ -51,6 +53,7 @@ a.link{color:#bff4ff;font-weight:600}
 <div class="screen" id="start">
   <h1>Surfers Surf<small>3D-Prototyp</small></h1>
   <p>Echte Wellen, Licht und Schatten mit Three.js. Weiche den Felsen aus, spring über Treibholz und sammle Münzen.</p>
+  <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button></div>
   <button class="btn" id="go">Los!</button>
   <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>
