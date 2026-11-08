@@ -141,6 +141,8 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .world-pill .chev{font-size:1.3em;line-height:.8;opacity:.85}
 .world-pill:hover{background:rgba(10,22,38,.74)}
 .exp-pill{background:rgba(170,70,20,.72)}
+.d3-pill{background:rgba(20,110,150,.78);text-decoration:none}
+.d3-pill:hover{background:rgba(20,110,150,.92)}
 .exp-pill:hover{background:rgba(170,70,20,.88)}
 .world-title{position:absolute;left:50%;top:17%;transform:translateX(-50%);text-align:center;width:min(92vw,640px);pointer-events:none;
   font:400 clamp(32px,6vmax,62px)/1 var(--display);letter-spacing:.03em;text-shadow:var(--outline);animation:wtitle 2.8s ease forwards}
@@ -315,6 +317,7 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
     <div class="menu-world">
       <button class="pill world-pill" id="worldBtn"><span class="lbl">Welt</span> <b id="menuWorld">Tropeninsel</b> <span class="chev" aria-hidden="true">›</span></button>
       <button class="pill world-pill exp-pill" id="expBtn" hidden></button>
+      <a class="pill world-pill d3-pill" href="3d/"><span class="lbl">Neu</span> <b>3D-Prototyp</b> <span class="chev" aria-hidden="true">›</span></a>
     </div>
   </div>
   <div></div>
@@ -4213,7 +4216,7 @@ const HAZE = new WeakMap();
 function tintCanvas(src, col, k) {
   const c = mk(src.width, src.height), x = c.getContext('2d'); x.drawImage(src, 0, 0);
   const img = x.getImageData(0, 0, c.width, c.height), d = img.data, [r, gg, b] = hexRGB(col);
-  for (let i = 0, n = 0; i < d.length; i += 4, n++) { if (!d[i + 3]) continue; const px = n % c.width, py = (n / c.width) | 0, q = k + (((px + py) & 1) ? .06 : -.06); d[i] += (r - d[i]) * q; d[i + 1] += (gg - d[i + 1]) * q; d[i + 2] += (b - d[i + 2]) * q; }
+  for (let i = 0, n = 0; i < d.length; i += 4, n++) { if (!d[i + 3]) continue; const q = k; void n; d[i] += (r - d[i]) * q; d[i + 1] += (gg - d[i + 1]) * q; d[i + 2] += (b - d[i + 2]) * q; }
   x.putImageData(img, 0, 0); return c;
 }
 function hazed(spr, zc) {
@@ -4295,8 +4298,14 @@ function drawSky() {
   const sm = LK.moon || LK.sun;
   if (sm) {
     const x = Math.round(W * sm.x - V.camX * .3), y = Math.round(hy * sm.y), r = Math.round(sm.r * Math.max(1, Math.min(V.W, V.H) / 200));
-    fdisc(x, y, r, sm.c[1]); fell(x + r * .25, y + r * .2, r * .75, r * .75, sm.c[0]); fell(x - r * .2, y - r * .2, r * .6, r * .6, sm.c[2]);
-    if (LK.moon) { fdisc(x + r * .3, y - r * .1, r * .22, sm.c[0]); fdisc(x - r * .35, y + r * .35, r * .15, sm.c[0]); }
+    // runde, glatte Scheibe mit sanftem Hof statt Pixelzeilen
+    const [hr, hg, hb] = hexRGB(sm.c[2]), halo = ctx.createRadialGradient(x, y, r * .8, x, y, r * 3.2);
+    halo.addColorStop(0, `rgba(${hr},${hg},${hb},.22)`); halo.addColorStop(1, `rgba(${hr},${hg},${hb},0)`);
+    ctx.fillStyle = halo; ctx.fillRect(x - r * 3.2, y - r * 3.2, r * 6.4, r * 6.4);
+    const body = ctx.createRadialGradient(x - r * .35, y - r * .35, r * .1, x, y, r);
+    body.addColorStop(0, sm.c[2]); body.addColorStop(.7, sm.c[1]); body.addColorStop(1, sm.c[0]);
+    ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    if (LK.moon) { ctx.fillStyle = sm.c[0]; ctx.globalAlpha = .55; for (const [cx2, cy2, cr] of [[.3, -.1, .22], [-.35, .35, .15], [-.05, .45, .1]]) { ctx.beginPath(); ctx.arc(x + r * cx2, y + r * cy2, r * cr, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
   }
   if (LK.rays) drawRays(hy);
   if (WSPR.cloud) for (const c of CLOUDS) {
