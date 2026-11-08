@@ -135,6 +135,7 @@ const waterMat = new THREE.ShaderMaterial({
     uSun: { value: SUN_DIR.clone() }, uDeep: { value: new THREE.Color('#05486e') }, uShallow: { value: new THREE.Color('#1fb8c8') }, uSss: { value: new THREE.Color('#5ff0e0') },
     uZenith: { value: ZENITH.clone() }, uHorizon: { value: HORIZON.clone() }, uSunCol: { value: new THREE.Color('#fff4d8') },
     uWake: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uIsl: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, -1, 0)) }, uLagoon: { value: new THREE.Color('#38e0cf') }, uSand: { value: new THREE.Color('#bff3dc') },
   },
   vertexShader: /* glsl */`
     uniform float uTime; uniform vec3 uCam; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6];
@@ -149,7 +150,7 @@ const waterMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * viewMatrix * wp;
     }`,
   fragmentShader: /* glsl */`
-    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6];
+    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol, uLagoon, uSand; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6]; uniform vec4 uIsl[12];
     varying vec3 vWorld; varying float vH;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
@@ -176,7 +177,13 @@ const waterMat = new THREE.ShaderMaterial({
       // Licht scheint durch die Wellenkämme
       float sss = pow(max(dot(V, -uSun) * .5 + .5, 0.), 3.) * smoothstep(.45, 1., h);
       vec3 water = mix(uDeep, uShallow, h * .55 + .1) + uSss * sss * .55;
-      vec3 col = mix(water, skyc, fres * .7);
+      // Flachwasser um die Inseln: türkis, zum Strand hin hell und sandig
+      float dI = 99.;
+      for (int i = 0; i < 12; i++) { vec4 is = uIsl[i]; if (is.z > 0.) dI = min(dI, length(xz - is.xy) - is.z); }
+      float lagoon = 1. - smoothstep(0., 14., dI), sandy = 1. - smoothstep(0., 3.5, dI);
+      water = mix(water, uLagoon * (.85 + h * .25), lagoon * .85);
+      water = mix(water, uSand, sandy * .7);
+      vec3 col = mix(water, skyc, fres * .7 * (1. - lagoon * .4));
       // breiter, weicher Sonnenglanz (keine Glitzerpunkte)
       float sp = max(dot(R, uSun), 0.);
       col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05);
@@ -185,6 +192,11 @@ const waterMat = new THREE.ShaderMaterial({
       float lace = noise(xz * 2.2 + vec2(uTime * .3, 0.)) * .6 + noise(xz * 4.7 - vec2(0., uTime * .4)) * .4;
       float foam = smoothstep(.9, 1.06, h + fn * .16) * smoothstep(.42, .78, lace) * near;
       col = mix(col, vec3(.9, .97, 1.), foam * .42);
+      // Brandung: Schaumsaum am Strand, läuft in Wellen an
+      float far = 1. - smoothstep(150., 420., length(vWorld.xz - uCam.xz));
+      float surf = sin(dI * 2.4 - uTime * 1.8 + noise(xz * .4) * 3.) * .5 + .5;
+      float shore = (1. - smoothstep(.15, 1.3 + surf * .9, dI + noise(xz * 1.6 + uTime * .3) * .5)) * step(-1.5, dI);
+      col = mix(col, vec3(.96, .99, 1.), shore * .85 * far);
       // Dunst zum Horizont
       float dist = length(vWorld.xz - uCam.xz);
       col = mix(col, uHorizon, smoothstep(60., 560., dist) * .92);
@@ -408,7 +420,7 @@ function makeRockMesh(seed, sx, sy, sz, mossy) {
   return m;
 }
 function makeIsland(seed) {
-  const g = new THREE.Group(), r = rand(5, 9);
+  const g = new THREE.Group(), r = rand(5, 9); g.userData.r = r;
   const sand = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 10, 0, TAU, 0, Math.PI / 2), M_SAND); sand.scale.y = 0.16; g.add(sand);
   const grass = new THREE.Mesh(new THREE.SphereGeometry(r * 0.62, 18, 8, 0, TAU, 0, Math.PI / 2), M_GRASS); grass.scale.y = 0.28; grass.position.y = 0.2; g.add(grass);
   const n = 1 + Math.floor(rand(3)); for (let i = 0; i < n; i++) { const pm = makePalm(rand(5, 7.5), rand(-0.6, 0.6)); pm.position.set(rand(-r * 0.4, r * 0.4), 0.6, rand(-r * 0.4, r * 0.4)); pm.rotation.y = rand(TAU); g.add(pm); }
@@ -417,19 +429,33 @@ function makeIsland(seed) {
   return g;
 }
 const islands = [];
-for (let i = 0; i < 12; i++) { const isl = makeIsland(i); isl.userData.side = i % 2 ? 1 : -1; isl.position.set(isl.userData.side * rand(16, 30), -0.25, -i * 38 - rand(20)); islands.push(isl); scene.add(isl); }
+for (let i = 0; i < 12; i++) { const isl = makeIsland(i); isl.userData.side = i % 2 ? 1 : -1; isl.userData.r = isl.userData.r || 7; isl.position.set(isl.userData.side * rand(16, 30), -0.25, -i * 38 - rand(20)); islands.push(isl); scene.add(isl); }
 
-// ferne Berginseln (wandern mit der Kamera mit = wirken weit weg)
-const backdrop = new THREE.Group(); scene.add(backdrop);
-{
-  const M_MTN = toon('#3f8a6a'), M_MTN2 = toon('#2f6f5a');
-  for (let i = 0; i < 9; i++) {
-    const g = new THREE.ConeGeometry(rand(40, 80), rand(45, 110), 9, 3); const p = g.attributes.position;
-    for (let k = 0; k < p.count; k++) { if (p.getY(k) > -g.parameters.height / 2 + 1) { p.setX(k, p.getX(k) * rand(0.75, 1.15)); p.setZ(k, p.getZ(k) * rand(0.75, 1.15)); } }
-    g.computeVertexNormals();
-    const m = new THREE.Mesh(g, i % 2 ? M_MTN : M_MTN2); const a = -Math.PI / 2 + (i - 4) * 0.3 + rand(-0.08, 0.08), d = rand(330, 430);
-    m.position.set(Math.cos(a) * d, g.parameters.height / 2 - 12, Math.sin(a) * d); backdrop.add(m);
+// ferne Berginseln: verrauschte Kegel mit Strand am Fuß, Dschungel und Fels (wandern mit der Kamera = wirken weit weg)
+const hash2 = (x, y) => { const s2 = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s2 - Math.floor(s2); };
+function vnoise(x, y) { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  return lerp(lerp(hash2(ix, iy), hash2(ix + 1, iy), ux), lerp(hash2(ix, iy + 1), hash2(ix + 1, iy + 1), ux), uy); }
+function fbm2(x, y) { return vnoise(x, y) * 0.55 + vnoise(x * 2.1 + 5, y * 2.1) * 0.3 + vnoise(x * 4.3 + 9, y * 4.3) * 0.15; }
+function makeMountain(R, H, seed) {
+  const g = new THREE.ConeGeometry(R, H, 40, 14, true); g.translate(0, H / 2, 0);
+  const p = g.attributes.position, cols = new Float32Array(p.count * 3);
+  const SAND = new THREE.Color('#ead9a2'), J1 = new THREE.Color('#3c9a48'), J2 = new THREE.Color('#2a7a3c'), ROCK = new THREE.Color('#6f8c6c'), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), t = y / H, a = Math.atan2(z, x), ca = Math.cos(a), sa = Math.sin(a);
+    const n = fbm2(ca * 1.6 + seed, sa * 1.6 + t * 2.2), ridge = 1 - Math.abs(vnoise(ca * 3 + seed * 2, sa * 3 + t * 5) * 2 - 1);
+    let f = 0.72 + n * 0.55 + ridge * 0.18; if (t < 0.06) f *= 1 + (0.06 - t) * 5; // flacher Fuß
+    p.setXYZ(i, x * f, y * (0.92 + n * 0.16), z * f);
+    const tt = t + (n - 0.5) * 0.18;
+    if (tt < 0.035) c.copy(SAND); else if (tt < 0.62) c.copy(J1).lerp(J2, clamp(n * 1.4 - 0.3, 0, 1)); else c.copy(J2).lerp(ROCK, smooth01((tt - 0.62) / 0.25));
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
   }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3)); g.computeVertexNormals();
+  return new THREE.Mesh(g, toon('#ffffff', { vertexColors: true }));
+}
+const backdrop = new THREE.Group(); scene.add(backdrop);
+for (let i = 0; i < 9; i++) {
+  const H = rand(50, 120), m = makeMountain(rand(55, 95), H, i * 7.3 + 1); const a = -Math.PI / 2 + (i - 4) * 0.3 + rand(-0.08, 0.08), d = rand(330, 430);
+  m.position.set(Math.cos(a) * d, -3, Math.sin(a) * d); backdrop.add(m);
 }
 
 // Bojenleinen am Rand des Spielbereichs
@@ -657,6 +683,7 @@ function update(dt) {
     const h = waveH(o.x, o.z, 3); o.mesh.position.y = o.type === 'log' ? h + 0.12 : h * 0.4 - 0.25; o.foam.position.set(o.x, h + 0.05, o.z); o.foam.rotation.y = time * 0.3 + o.ph; if (o.type === 'log') { waveN(o.x, o.z); o.mesh.rotation.z = _n.x * -0.8; o.mesh.rotation.x = _n.z * 0.8; } }
   for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; if (c.z > P.z + 12) coins.splice(i, 1); else if (c.taken) c.t += dt; }
   for (const isl of islands) if (isl.position.z > P.z + 40) { isl.position.z -= islands.length * 38; isl.position.x = isl.userData.side * rand(16, 30); isl.rotation.y = rand(TAU); }
+  islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, isl.userData.r * 0.97, 0));
   updateParts(dt);
 }
 
