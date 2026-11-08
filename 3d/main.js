@@ -554,6 +554,101 @@ const coins = [];
 function addCoin(x, y, z) { if (coins.length >= COIN_N) return; coins.push({ x, y, z, taken: false, t: 0 }); }
 
 /* =========================================================================
+   Leben: Delfine springen neben der Strecke, Möwen kreisen, Segelboote am Horizont
+   ========================================================================= */
+function makeDolphin() {
+  const g = new THREE.Group();
+  const prof = [[0.001, -1.02], [0.045, -1.0], [0.065, -0.9], [0.075, -0.82], [0.17, -0.74], [0.27, -0.55], [0.33, -0.25], [0.32, 0.1], [0.24, 0.45], [0.13, 0.72], [0.07, 0.9], [0.001, 1.0]].map(([r, y]) => new THREE.Vector2(r, y));
+  const bg = new THREE.LatheGeometry(prof, 22); bg.rotateX(Math.PI / 2); bg.scale(1, 0.92, 1);
+  const pa = bg.attributes.position, cols = new Float32Array(pa.count * 3), TOP = new THREE.Color('#58789a'), BEL = new THREE.Color('#e4edf2'), c = new THREE.Color();
+  for (let i = 0; i < pa.count; i++) { c.copy(TOP).lerp(BEL, smooth01((-pa.getY(i) + 0.02) / 0.14)); cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b; }
+  bg.setAttribute('color', new THREE.BufferAttribute(cols, 3)); bg.computeVertexNormals();
+  const mat = toon('#ffffff', { vertexColors: true }), dark = toon('#58789a');
+  g.add(withOutline(new THREE.Mesh(bg, mat), 0.02));
+  const finShape = new THREE.Shape(); finShape.moveTo(-0.22, 0); finShape.quadraticCurveTo(0.05, 0.12, 0.2, 0.36); finShape.quadraticCurveTo(0.12, 0.12, 0.2, 0); finShape.lineTo(-0.22, 0);
+  const fin = withOutline(new THREE.Mesh(new THREE.ExtrudeGeometry(finShape, { depth: 0.04, bevelEnabled: false }), dark), 0.015); fin.rotation.y = -Math.PI / 2; fin.position.set(0.02, 0.24, 0.02); g.add(fin);
+  for (const sd of [-1, 1]) {
+    const fl = withOutline(new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6).scale(0.2, 0.03, 0.09), dark), 0.012); fl.position.set(sd * 0.3, -0.12, -0.38); fl.rotation.set(0, sd * 0.5, sd * -0.5); g.add(fl);
+    const fk = withOutline(new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6).scale(0.24, 0.025, 0.1), dark), 0.012); fk.position.set(sd * 0.17, 0, 1.0); fk.rotation.y = sd * 0.45; g.add(fk);
+  }
+  for (const sd of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), new THREE.MeshBasicMaterial({ color: '#141a24' })); e.position.set(sd * 0.13, 0.03, -0.66); g.add(e); }
+  g.scale.setScalar(1.15);
+  return g;
+}
+const dolphins = [];
+for (let i = 0; i < 3; i++) { const m = makeDolphin(); scene.add(m); dolphins.push({ m, side: i % 2 ? 1 : -1, x: 0, z: -40 - i * 25, wait: rand(0.5, 2.5), t: -1, dur: 1.2, h: 2 }); }
+function respawnDolphin(d) { d.side = Math.random() < 0.5 ? -1 : 1; d.x = d.side * rand(7, 11); d.z = P.z - rand(30, 70); d.t = -1; d.wait = rand(0.8, 3); }
+dolphins.forEach(respawnDolphin);
+function splash(x, y, z, n, s = 1) { for (let i = 0; i < n; i++) { const a = rand(TAU); addPart(x + Math.cos(a) * 0.3, y, z + Math.sin(a) * 0.5, Math.cos(a) * rand(0.5, 2.5) * s, rand(2, 5) * s, Math.sin(a) * rand(0.5, 2) * s, rand(0.5, 0.9), rand(0.1, 0.2), '#ffffff'); } }
+function updateDolphins(dt) {
+  const sp = state === 'crash' ? 4 : P.speed * 0.93;
+  for (const d of dolphins) {
+    d.z -= sp * dt;
+    if (d.z > P.z + 12 || d.z < P.z - 140) { respawnDolphin(d); continue; }
+    const wy = waveH(d.x, d.z, 3);
+    if (d.t < 0) { // schwimmt: nur die Rückenflosse schneidet durchs Wasser
+      d.wait -= dt; d.m.position.set(d.x, wy - 0.42, d.z); d.m.rotation.set(0, 0, Math.sin(time * 2 + d.x) * 0.05);
+      if (d.wait <= 0) { d.t = 0; d.dur = rand(1.05, 1.35); d.h = rand(1.6, 2.6); splash(d.x, wy, d.z - 0.8, 14); }
+    } else {
+      d.t += dt; const q = d.t / d.dur, y = wy - 0.42 + Math.sin(q * Math.PI) * d.h, vy = Math.cos(q * Math.PI) * Math.PI * d.h / d.dur;
+      d.m.position.set(d.x, y, d.z); d.m.rotation.set(Math.atan2(vy, sp + 6), 0, Math.sin(q * Math.PI) * 0.15 * d.side);
+      if (q >= 1) { d.t = -1; d.wait = rand(1.5, 4); splash(d.x, wy, d.z + 0.6, 22); }
+    }
+  }
+}
+
+function makeGull() {
+  const g = new THREE.Group(), W = toon('#ffffff'), G = toon('#9aa8b4'), K = toon('#222a33');
+  g.add(withOutline(new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.32, 4, 8).rotateX(Math.PI / 2), W), 0.012));
+  const head = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 8), W), 0.012); head.position.set(0, 0.04, -0.24); g.add(head);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 6).rotateX(-Math.PI / 2), toon('#ffb020')); beak.position.set(0, 0.03, -0.34); g.add(beak);
+  const wings = [];
+  for (const sd of [-1, 1]) {
+    const piv = new THREE.Group(); piv.position.set(sd * 0.06, 0.03, -0.04); g.add(piv);
+    const inner = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.02, 0.2), W), 0.01); inner.position.x = sd * 0.21; piv.add(inner);
+    const op = new THREE.Group(); op.position.x = sd * 0.42; piv.add(op);
+    const outer = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.018, 0.15), G), 0.01); outer.position.set(sd * 0.2, 0, 0.02); op.add(outer);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, 0.12), K); tip.position.set(sd * 0.42, 0, 0.03); op.add(tip);
+    wings.push({ piv, op, sd });
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.14), W); tail.position.set(0, 0, 0.26); g.add(tail);
+  g.userData.wings = wings; g.scale.setScalar(1.4); return g;
+}
+const gulls = [];
+for (let i = 0; i < 5; i++) { const m = makeGull(); scene.add(m); gulls.push({ m, cx: rand(-14, 14), cy: rand(7, 13), dz: rand(18, 60), r: rand(5, 10), w: rand(0.35, 0.6) * (Math.random() < 0.5 ? -1 : 1), a: rand(TAU), ph: rand(TAU) }); }
+function updateGulls(dt) {
+  for (const b of gulls) {
+    b.a += b.w * dt; b.dz -= dt * 3; if (b.dz < 12) { b.dz = rand(50, 80); b.cx = rand(-16, 16); b.cy = rand(7, 13); }
+    const cz = P.z - b.dz, x = b.cx + Math.cos(b.a) * b.r, z = cz + Math.sin(b.a) * b.r * 0.7, y = b.cy + Math.sin(b.a * 1.7 + b.ph) * 0.8;
+    b.m.position.set(x, y, z);
+    b.m.rotation.set(0, -b.a - (b.w > 0 ? 0 : Math.PI), 0, 'YXZ'); b.m.rotation.z = -Math.sign(b.w) * 0.35;
+    const flap = Math.sin(time * 0.9 + b.ph) > 0.2, ang = flap ? Math.sin(time * 9 + b.ph) * 0.6 : 0.08 + Math.sin(time * 1.3 + b.ph) * 0.05;
+    for (const w of b.m.userData.wings) { w.piv.rotation.z = w.sd * ang; w.op.rotation.z = w.sd * ang * 0.6; }
+  }
+}
+
+function makeSailboat(stripe) {
+  const g = new THREE.Group();
+  const hull = withOutline(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 3.2, 4, 10).rotateX(Math.PI / 2).scale(1, 0.5, 1), toon('#f4f1e8')), 0.03); hull.position.y = 0.1; g.add(hull);
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 3.2), toon('#b07a4a')); deck.position.y = 0.42; g.add(deck);
+  const mast = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 6.5, 6), toon('#e8e2d4')), 0.02); mast.position.set(0, 3.6, -0.4); g.add(mast);
+  const sc = document.createElement('canvas'); sc.width = 64; sc.height = 128; const x = sc.getContext('2d'); x.fillStyle = '#fbfaf5'; x.fillRect(0, 0, 64, 128); x.fillStyle = stripe; x.fillRect(0, 70, 64, 18); x.fillRect(0, 96, 64, 8);
+  const st = new THREE.CanvasTexture(sc); st.colorSpace = THREE.SRGBColorSpace;
+  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0, 6); sh.quadraticCurveTo(1.4, 2.6, 2.6, 0); sh.lineTo(0, 0);
+  const sg = new THREE.ShapeGeometry(sh); const uv = sg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 2.6, uv.getY(i) / 6);
+  const sail = withOutline(new THREE.Mesh(sg, toon('#ffffff', { map: st, side: THREE.DoubleSide })), 0.02); sail.rotation.y = -Math.PI / 2; sail.position.set(0, 0.7, -0.35); g.add(sail);
+  return g;
+}
+const boats = [makeSailboat('#e8483a'), makeSailboat('#2f8fe0')];
+boats.forEach((b, i) => { b.position.set((i ? 1 : -1) * rand(60, 110), 0, P.z - rand(120, 260)); b.rotation.y = rand(TAU); scene.add(b); });
+function updateBoats() {
+  for (const b of boats) {
+    if (b.position.z > P.z + 30) { b.position.set((Math.random() < 0.5 ? -1 : 1) * rand(60, 110), 0, P.z - rand(220, 320)); b.rotation.y = rand(TAU); }
+    b.position.y = waveH(b.position.x, b.position.z, 2) * 0.8; b.rotation.z = Math.sin(time * 0.8 + b.position.x) * 0.06; b.rotation.x = Math.sin(time * 0.6 + b.position.z) * 0.04;
+  }
+}
+
+/* =========================================================================
    Partikel: Gischt, Funken (weiche Punkte)
    ========================================================================= */
 const PART_N = 900;
@@ -732,6 +827,7 @@ function update(dt) {
   for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; if (c.z > P.z + 12) coins.splice(i, 1); else if (c.taken) c.t += dt; }
   for (const isl of islands) if (isl.position.z > P.z + 40) { isl.position.z -= islands.length * 38; isl.position.x = isl.userData.side * rand(16, 30); isl.rotation.y = rand(TAU); }
   islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, isl.userData.r * 0.97, 0));
+  updateDolphins(dt); updateGulls(dt); updateBoats();
   updateParts(dt);
 }
 
@@ -777,7 +873,8 @@ function syncScene(dt) {
   camera.position.copy(camState.pos);
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
-  if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]); camera.lookAt(P.x, P.y + 1.0, P.z); }
+  if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride, l = surf3d.lookOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]);
+    if (surf3d.lookAtGull) camera.lookAt(gulls[0].m.position); else if (l) camera.lookAt(P.x + l[0], l[1], P.z + l[2]); else camera.lookAt(P.x, P.y + 1.0, P.z); }
   const fovT = (port ? 68 : 62) + clamp((P.speed - 14) / 16, 0, 1) * 6;
   camState.fov = damp(camState.fov || fovT, fovT, 2, dt);
   if (Math.abs(camera.fov - camState.fov) > 0.01) { camera.fov = camState.fov; camera.updateProjectionMatrix(); }
@@ -825,4 +922,4 @@ $('again').addEventListener('click', start);
 resize();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera };
+window.surf3d = { P, get state() { return state; }, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats };
