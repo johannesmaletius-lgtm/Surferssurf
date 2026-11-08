@@ -2301,7 +2301,7 @@ function makeRuin(seed) {
 const LANE_W = 2.5;
 const CAM_BACK = 5.2;
 const BOARD_L = 2.25, BOARD_HW = .29, BOARD_T = .06, BOARD_PIVOT = .36;
-const V = { u: 1, W: 0, H: 0, cx: 0, hy: 0, f: 1, camX: 0, camY: 3, camZ: 0, baseCamY: 3, feetFrac: .86, roll: 0, q: 2, dpr: 1 };
+const V = { u: 1, kick: 0, kickV: 0, fov: 0, W: 0, H: 0, cx: 0, hy: 0, f: 1, camX: 0, camY: 3, camZ: 0, baseCamY: 3, feetFrac: .86, roll: 0, q: 2, dpr: 1 };
 let g = null; // aktueller Zeichenkontext (wird für Shop-Vorschauen umgebogen)
 function proj(x, y, z) {
   const zc = z - V.camZ;
@@ -2619,6 +2619,9 @@ const DEV = { god: false, slow: 1 };
 let state = 'loading';
 let T = 0, timeScale = 1, targetTimeScale = 1;
 let shake = 0, flash = 0, flashCol = '#fff';
+// Hit-Stop: das Bild hält bei Treffern kurz an – macht Aufprall spürbar
+let hitStop = 0;
+const freeze = t => { hitStop = Math.max(hitStop, t); };
 let obs = [], coins = [], pows = [], scen = [], decos = [], parts = [], streaks = [], glints = [], popups = [];
 let crash = null;
 let curPose = null;
@@ -2664,7 +2667,9 @@ function duck() {
   for (let i = 0; i < 16; i++) addPart('drop', P.x + rand(-.5, .5), .1, P.z + .6, rand(-2.5, 2.5), rand(1.5, 3.5), P.speed * rand(.75, 1), rand(.4, .7), rand(.08, .14), '#e8fbff');
 }
 function land() {
-  P.y = 0; P.vy = 0; P.air = false; P.trick = null; P.landT = .28;
+  const hard = P.fastDrop || P.airT > .7;
+  P.y = 0; P.vy = 0; P.air = false; P.trick = null; P.landT = .34;
+  V.kickV = (V.kickV || 0) - (hard ? 2.6 : 1.5);
   sfx('land');
   for (let i = 0; i < 22; i++) addPart('drop', P.x + rand(-.5, .5), .05, P.z + rand(-.4, .6), rand(-3, 3), rand(1.5, 4), P.speed * rand(.5, .9), rand(.4, .75), rand(.07, .15), trailColor());
   addPart('ring', P.x, 0, P.z + .2, 0, 0, P.speed * .85, .6, 1.4, '#fff');
@@ -2732,7 +2737,7 @@ function computePose(t) {
       }
     } else if (P.fastDrop) { pz.crouch = .55; pz.armL = { a: 2.6, e: .2, f: 0 }; pz.armR = { a: 2.6, e: .2, f: 0 }; }
   }
-  if (P.landT > 0) { const q = P.landT / .28; pz.crouch += .45 * q; pz.armL.a += .3 * q; pz.armR.a += .3 * q; pz.fwd += .2 * q; }
+  if (P.landT > 0) { const ph = 1 - P.landT / .34, c = Math.exp(-ph * 4.2) * Math.cos(ph * 7.5) * smooth01(P.landT / .06); pz.crouch += .5 * c; pz.armL.a += .35 * c; pz.armR.a += .35 * c; pz.armL.e += .2 * Math.max(0, c); pz.armR.e += .2 * Math.max(0, c); pz.fwd += .22 * c; pz.boardPitch -= .05 * c; }
   if (P.duck > 0) {
     const k = smooth01((DUCK_TIME - P.duck) / .09) * smooth01(P.duck / .14);
     pz.crouch = lerp(pz.crouch, 1.18, k); pz.fwd = lerp(pz.fwd, 1.25, k);
@@ -2952,7 +2957,7 @@ function nearMiss(o) {
 function hardStumble(o, warn) {
   P.stumble = P.stumbleDur = .95; P.stumbleKind = 'hard';
   P.stumbleDir = Math.sign(o.x - P.x) || (chance(.5) ? 1 : -1);
-  sfx('bump'); shake = Math.max(shake, .35);
+  sfx('bump'); shake = Math.max(shake, .35); freeze(.07);
   popup(warn ? 'Rempler!' : 'Autsch!', '#ff9a7a');
   for (let i = 0; i < 18; i++) addPart('drop', P.x + P.stumbleDir * .4, rand(0, .6), P.z + .3, -P.stumbleDir * rand(1, 4), rand(1.5, 4), P.speed * rand(.5, .8), rand(.4, .7), rand(.08, .14), '#ffffff');
 }
@@ -2979,13 +2984,13 @@ function smash(o) {
   const animal = o.type === 'turtle' || o.type === 'dolphin';
   if (animal) o.gone = .001; else o.dead = true;
   sfx(animal ? 'splash' : 'smash');
-  shake = Math.max(shake, .25);
+  shake = Math.max(shake, .25); freeze(.05);
   for (let i = 0; i < 26; i++) addPart('drop', o.x + rand(-o.w / 2, o.w / 2) * .6, rand(0, 1), o.z, rand(-3, 3), rand(2, 6), P.speed * rand(.3, .7), rand(.5, .9), rand(.08, .18), '#ffffff');
   if (o.type === 'rockB' || o.type === 'rockS') for (let i = 0; i < 14; i++) addPart('chunk', o.x + rand(-.6, .6), rand(.3, 1.5), o.z, rand(-4, 4), rand(3, 7), P.speed * rand(.3, .6), rand(.8, 1.2), rand(.12, .28), pick(['#6d6b70', '#8e8a86', '#4a4c58']));
   if (o.type === 'log' || o.type === 'bridge') for (let i = 0; i < 12; i++) addPart('chunk', o.x + rand(-o.w / 2, o.w / 2) * .8, rand(.3, 1.5), o.z, rand(-3, 3), rand(3, 6), P.speed * rand(.3, .6), rand(.8, 1.2), rand(.1, .22), pick(['#9c6838', '#6b4020', '#c8925a']));
 }
 function popShield() {
-  run.pw.shield = 0; sfx('pop'); flash = .3; flashCol = '#9fe6ff';
+  run.pw.shield = 0; sfx('pop'); flash = .3; flashCol = '#9fe6ff'; freeze(.08);
   for (let i = 0; i < 24; i++) { const a = rand(TAU); addPart('bubble', P.x + Math.cos(a) * .9, .9 + Math.sin(a) * .9, P.z, Math.cos(a) * 3, Math.sin(a) * 3 + 1, P.speed, rand(.4, .7), rand(.06, .14), '#bff0ff'); }
   popup('Blase geplatzt!', '#9fe6ff');
 }
@@ -2998,7 +3003,7 @@ function crashNow(o) {
     body: { x: P.x, y: P.y + .1, z: P.z, vx: rand(-1.2, 1.2), vy: 5.4 + (o.y1 > 1.5 ? 1.2 : 0), vz: sp * .32, rot: 0, vr: (chance(.5) ? 1 : -1) * rand(6, 9), inWater: false },
     board: { x: P.x, y: P.y + .1, z: P.z + .3, vx: rand(-2, 2), vy: 7.5, vz: sp * .28, yaw: 0, pitch: 0, roll: 0, vyaw: rand(-4, 4), vpitch: rand(8, 12), vroll: rand(-6, 6), inWater: false },
   };
-  Sound.fx.crash(); shake = .8; flash = .5; flashCol = '#ffffff';
+  Sound.fx.crash(); shake = .8; flash = .5; flashCol = '#ffffff'; freeze(.13);
   for (let i = 0; i < 44; i++) addPart('drop', P.x + rand(-.6, .6), rand(0, 1), P.z + rand(0, 1), rand(-4, 4), rand(2, 7), sp * rand(.2, .6), rand(.6, 1.1), rand(.1, .2), '#ffffff');
   if (o.type === 'rockB' || o.type === 'rockS') for (let i = 0; i < 8; i++) addPart('chunk', o.x + rand(-.5, .5), rand(.5, 1.5), o.z, rand(-3, 3), rand(2, 5), sp * .3, 1, rand(.1, .22), '#6d6b70');
   UI.onCrash();
@@ -3289,7 +3294,7 @@ function update(dt) {
     updateTutorial();
     if (!run.recordShown && save.best > 50 && run.dist > save.best) { run.recordShown = true; popup('Neuer Rekord!', '#b8ffb0'); Sound.fx.record(); }
   }
-  if (state === 'play' || state === 'menu') { updatePickups(dt); emitSurfSpray(dt); curPose = computePose(T); }
+  if (state === 'play' || state === 'menu') { updatePickups(dt); emitSurfSpray(dt); recordWake(); curPose = computePose(T); }
   spawnScenery();
   updateParts(dt);
   for (const p of popups) p.t += dt;
@@ -3997,6 +4002,7 @@ function resize() {
   const span = lerp(.56, .55, V.port) * V.H;
   V.baseCamY = clamp(span * CAM_BACK / V.f, 2.2, 6.5);
   V.span = V.baseCamY * V.f / CAM_BACK;
+  V.fBase = V.f;
   V.cx = V.W / 2;
 }
 function updateCamera(dt) {
@@ -4006,7 +4012,18 @@ function updateCamera(dt) {
   if (crash) { fx = lerp(P.x, crash.body.x, .5); fy = 0; }
   V.camZ = P.z - CAM_BACK;
   V.camX = damp(V.camX, fx * lerp(.95, .78, V.port), lerp(11, 6, V.port), dt);
-  V.camY = damp(V.camY, V.baseCamY + clamp(fy, 0, 6) * (run.pw.kite > 0 ? .72 : .4), 5, dt);
+  V.camY0 = damp(V.camY0 === undefined ? V.camY : V.camY0, V.baseCamY + clamp(fy, 0, 6) * (run.pw.kite > 0 ? .72 : .4), 5, dt);
+  V.camY = V.camY0;
+  // Sichtfeld weitet sich bei Tempo und Turbo leicht (Füße bleiben an derselben Stelle)
+  const play = state === 'play';
+  const fovT = play ? clamp((P.speed - 26) / 18, 0, 1) * .035 + (run.turbo > 0 ? .085 : 0) + (run.pw.kite > 0 ? .03 : 0) : 0;
+  V.fov = damp(V.fov || 0, fovT, 2.2, dt);
+  V.f = (V.fBase || V.f) * (1 - V.fov);
+  // Landefeder: kurzes, gedämpftes Nachfedern der Kamera
+  const ks = Math.min(dt, 1 / 30);
+  V.kickV = (V.kickV || 0) + (-170 * (V.kick || 0) - 15 * V.kickV) * ks; V.kick = (V.kick || 0) + V.kickV * ks;
+  V.camY += V.kick;
+  V.span = V.baseCamY * V.f / CAM_BACK;
   V.hy = V.feetFrac * V.H - V.span;
   V.roll = 0;
 }
@@ -4086,10 +4103,16 @@ function foamRow(x0, x1, z, t) {
   // weicher Schaum: halbtransparenter Saum mit runden Schaumflocken
   const a = proj(x0, 0, z), b = proj(x1, 0, z); if (!a || !b) return;
   const LK = WL(), ry = Math.max(1, .1 * a.s), n = Math.max(4, Math.round((b.x - a.x) / Math.max(3, .3 * a.s))), seed = Math.floor(x0 * 10);
-  ctx.fillStyle = ditherPat(LK.foam[0], 2); ctx.beginPath(); ctx.ellipse((a.x + b.x) / 2, a.y, (b.x - a.x) / 2 + ry, ry * 1.4, 0, 0, TAU); ctx.fill();
+  // weicher Schaumhof, dann ein zusammenhängender Schaumkranz aus überlappenden Flocken (statt einzelner Perlen)
+  const hw = (b.x - a.x) / 2 + ry * 2.2, cx = (a.x + b.x) / 2;
+  ctx.globalAlpha = .55; ctx.drawImage(dotSpr(LK.foam[1]), cx - hw, a.y - ry * 1.6, hw * 2, ry * 3.4); ctx.globalAlpha = 1;
+  const m = Math.max(4, Math.round((b.x - a.x) / Math.max(2, ry * 1.05)));
   ctx.fillStyle = ditherPat(LK.foam[0], 0); ctx.beginPath();
-  for (let i = 0; i <= n; i++) { const x = lerp(a.x, b.x, i / n), r = ry * (.6 + .7 * hash2(i, seed)) * (.85 + .15 * Math.sin(T * 2 + i)); ctx.moveTo(x + r, a.y); ctx.ellipse(x, a.y - r * .2, r, r * .6, 0, 0, TAU); }
+  for (let i = 0; i <= m; i++) { const x = lerp(a.x, b.x, i / m), r = ry * (.85 + .55 * hash2(i, seed)) * (.9 + .1 * Math.sin(T * 2 + i)); ctx.moveTo(x + r, a.y - r * .1); ctx.ellipse(x, a.y - r * .1, r, r * .5, 0, 0, TAU); }
   ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath();
+  for (let i = 1; i < m; i += 2) { const x = lerp(a.x, b.x, i / m), r = ry * (.4 + .3 * hash2(i, seed + 5)); ctx.moveTo(x + r, a.y - ry * .35); ctx.ellipse(x, a.y - ry * .35, r, r * .45, 0, 0, TAU); }
+  ctx.fill(); void n;
 }
 /** halb untergetauchte Objekte: Wasser legt sich als Pixelraster über den unteren Teil */
 function waterline(x, z, r, py, h) {
@@ -4402,7 +4425,14 @@ function drawPow(pw) {
 }
 /** Tropfen & Blasen als fertige, weiche Bilder: schneller als Kreise malen und mit sanftem Rand */
 const DOTS = new Map();
+const NORM = document.createElement('canvas').getContext('2d');
+function normCol(col) {
+  if (col[0] === '#') return col;
+  const m = /^hsl\((\d+(?:\.\d+)?)/.exec(col); if (m) col = `hsl(${Math.round(+m[1] / 20) * 20 % 360},95%,68%)`; // Regenbogen: wenige Stufen statt unendlich vieler Bilder
+  NORM.fillStyle = '#000'; NORM.fillStyle = col; return NORM.fillStyle;
+}
 function dotSpr(col, ring) {
+  col = normCol(col);
   const key = col + (ring ? '|r' : ''); let c = DOTS.get(key); if (c) return c;
   const [r, gg, b] = hexRGB(col), rgba = a => `rgba(${r},${gg},${b},${a})`;
   c = mk(48, 48, x => {
@@ -4417,14 +4447,29 @@ function dotSpr(col, ring) {
   });
   DOTS.set(key, c); return c;
 }
+/** Funkeln beim Einsammeln: weicher Vierzack-Stern mit Leuchthof */
+function starSpr(col) {
+  col = normCol(col);
+  const key = col + '|s'; let c = DOTS.get(key); if (c) return c;
+  const [r, gg, b] = hexRGB(col), rgba = a => `rgba(${r},${gg},${b},${a})`;
+  c = mk(64, 64, x => {
+    const gr = x.createRadialGradient(32, 32, 0, 32, 32, 30); gr.addColorStop(0, rgba(.75)); gr.addColorStop(.35, rgba(.22)); gr.addColorStop(1, rgba(0));
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    x.fillStyle = rgba(1); x.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i / 8 * TAU - PI / 2, rr = i % 2 ? 6 : 29; x.lineTo(32 + Math.cos(a) * rr, 32 + Math.sin(a) * rr); }
+    x.closePath(); x.fill();
+    const g2 = x.createRadialGradient(32, 32, 0, 32, 32, 9); g2.addColorStop(0, '#fff'); g2.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g2; x.fillRect(16, 16, 32, 32);
+  });
+  DOTS.set(key, c); return c;
+}
 function drawPart(pt) {
   const p = proj(pt.x, pt.y, pt.z); if (!p) return;
   const k = pt.life / pt.max;
   switch (pt.type) {
     case 'drop': { const r = Math.max(.8, pt.size * p.s * .45) * 1.25; ctx.globalAlpha = Math.min(1, k * 2); ctx.drawImage(dotSpr(pt.col), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
-    case 'foam': { const r = Math.max(1, Math.round(.09 * p.s)), sp = pt.size * (1.6 - k) * p.s; ctx.globalAlpha = Math.min(1, k * 1.5); ctx.fillStyle = k > .5 ? '#ffffff' : WL().foam[1]; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(p.x + sd * sp, p.y, r, r * .55, 0, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; break; }
+    case 'foam': { const r = Math.max(1.5, .13 * p.s) * (1.25 - k * .35), sp = pt.size * (1.6 - k) * p.s, spr = dotSpr(k > .5 ? '#ffffff' : WL().foam[1]); ctx.globalAlpha = Math.min(1, k * 1.3) * .85; for (const sd of [-1, 1]) ctx.drawImage(spr, p.x + sd * sp - r, p.y - r * .5, r * 2, r); ctx.globalAlpha = 1; break; }
     case 'ring': { const r = pt.size * (1.3 - k) * p.s; if (r < 1) break; const c = k > .4 ? '#ffffff' : WL().foam[2], sz = Math.max(1, Math.round(.1 * p.s)); for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) frect(p.x + sd * r * (.6 + i * .2) - sz / 2, p.y + i % 2, sz * (2 - i * .5), Math.max(1, sz * .6), c); break; }
-    case 'spark': { const r = Math.max(1, Math.round(pt.size * p.s * (.4 + k * .6))); frect(p.x - r, p.y, r * 2 + 1, 1, pt.col); frect(p.x, p.y - r, 1, r * 2 + 1, pt.col); frect(p.x, p.y, 1, 1, '#ffffff'); break; }
+    case 'spark': { const r = Math.max(2, pt.size * p.s * (.5 + k * .7)) * 1.6; ctx.globalAlpha = Math.min(1, k * 2.5); ctx.drawImage(starSpr(pt.col), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
     case 'ember': { const r = Math.max(1, Math.round(pt.size * p.s * (.5 + k * .6))); frect(p.x - r, p.y - r, r * 2, r * 2, '#ff6a1a'); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r), Math.max(1, r), pt.col); break; }
     case 'chunk': { const r = Math.max(2, Math.round(pt.size * p.s)); frect(p.x - r / 2 - 1, p.y - r / 2 - 1, r + 2, r + 2, OUT); frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r / 2), 1, '#ffffff55'); break; }
     case 'bubble': { const r = Math.max(1, pt.size * p.s * .6) * 1.12; ctx.globalAlpha = Math.min(1, k * 1.5); ctx.drawImage(dotSpr(pt.col, true), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
@@ -4441,13 +4486,45 @@ function layerAt(slot, cx, cy, s, left, right, up, down) {
   return L2;
 }
 function blitLayer(L2) { L2.p.canvas(L2.cv); ctx.drawImage(L2.cv, L2.ox, L2.oy); }
+/** Kielwelle: zwei auseinanderlaufende Schaumlinien, die der gefahrenen Spur folgen (Spurwechsel = Kurve, Sprung = Lücke) */
+const WAKE = [];
+function recordWake() {
+  const last = WAKE[WAKE.length - 1];
+  if (last && P.z - last.z < .12) { last.x = P.x; last.air = P.y > .2; return; }
+  WAKE.push({ z: P.z, x: P.x, air: P.y > .2 || !P.alive });
+  while (WAKE.length > 2 && WAKE[1].z < P.z - 7) WAKE.shift();
+}
+function wakeAt(z) {
+  for (let i = WAKE.length - 1; i > 0; i--) { const a = WAKE[i - 1], b = WAKE[i]; if (a.z <= z) { const t = clamp((z - a.z) / Math.max(1e-3, b.z - a.z), 0, 1); return { x: lerp(a.x, b.x, t), air: a.air || b.air }; } }
+  return WAKE.length ? { x: WAKE[0].x, air: true } : null;
+}
 function drawWake() {
-  const LK = WL();
+  if (WAKE.length < 2) return;
+  const LK = WL(), z0 = P.z - .72, zMax = Math.min(5.6, P.z - V.camZ - .35 + .72), G = .32;
+  // Stützpunkte auf festem Weltraster: der Schaum „klebt“ am Wasser statt mitzuwandern
+  const zs = [z0]; for (let z = Math.floor(z0 / G) * G; z > z0 - zMax; z -= G) if (z < z0 - .01) zs.push(z); zs.push(z0 - zMax);
   for (const sd of [-1, 1]) {
-    const a = proj(P.x + sd * .2, 0, P.z - .7), b = proj(P.x + sd * 1.9, 0, P.z - 5.4); if (!a || !b) continue;
-    const n = 14;
-    for (let i = 0; i <= n; i++) { const t = i / n, x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), sz = Math.max(1, Math.round((1 - t) * .2 * a.s * (.7 + .3 * hash2(i, 5)))); frect(x - sz / 2, y, sz, Math.max(1, sz * .6), i % 3 ? LK.foam[0] : LK.foam[1]); }
+    let prev = null;
+    for (const z of zs) {
+      const d = z0 - z, w = wakeAt(z); if (!w) break;
+      const gi = Math.floor(z / G), n1 = hash2(gi, sd * 7 + 3), n2 = hash2(gi, sd * 13 + 1);
+      const off = .2 + d * .3 + (n1 - .5) * .05 * d, hw = (.04 + d * .03) * (.7 + .6 * n2), fade = 1 - d / (zMax + .3);
+      const pi = proj(w.x + sd * (off - hw), 0, z), po = proj(w.x + sd * (off + hw), 0, z), ph = proj(w.x + sd * (off + hw * 3.2), 0, z), pc = proj(w.x + sd * (off * .35), 0, z);
+      const cur = pi && po && ph && pc ? { pi, po, ph, pc, a: fade * (.6 + .4 * n1), air: w.air } : null;
+      if (prev && cur && !cur.air && !prev.air) {
+        const quad = (a1, b1, a2, b2) => { ctx.beginPath(); ctx.moveTo(a1.x, a1.y); ctx.lineTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y); ctx.lineTo(a2.x, a2.y); ctx.fill(); };
+        const al = (prev.a + cur.a) * .5;
+        ctx.fillStyle = LK.foam[2] || LK.foam[1];
+        ctx.globalAlpha = al * .18; quad(prev.pc, prev.pi, cur.pc, cur.pi);   // aufgewühltes Wasser innen
+        ctx.fillStyle = LK.foam[1];
+        ctx.globalAlpha = al * .32; quad(prev.po, prev.ph, cur.po, cur.ph);   // Gischtschleier außen
+        ctx.fillStyle = LK.foam[0];
+        ctx.globalAlpha = al * .9; quad(prev.pi, prev.po, cur.pi, cur.po);    // Schaumkamm
+      }
+      prev = cur;
+    }
   }
+  ctx.globalAlpha = 1;
 }
 function drawPlayer() {
   if (crash) { drawCrash(); return; }
@@ -4456,7 +4533,7 @@ function drawPlayer() {
   const bd = getBoard(effBoardId()), L = getSurfer(effSurferId());
   const pc = proj(P.x, P.y + bob, P.z); if (!pc) return;
   let s = pc.s; const F = surferDirOf(L);
-  if (onWater) drawWake(); else { const q = proj(P.x, 0, P.z + .3); if (q) fell(q.x, q.y, .8 * q.s, .8 * q.s * clamp(V.camY / q.zc, .1, .5), null, '#000814', P.y < 2 ? 1 : 2); }
+  drawWake(); if (!onWater) { const q = proj(P.x, 0, P.z + .3); if (q) fell(q.x, q.y, .8 * q.s, .8 * q.s * clamp(V.camY / q.zc, .1, .5), null, '#000814', P.y < 2 ? 1 : 2); }
   if (run.turbo > 0 && state === 'play') drawTurboJet();
   const blink = P.grace > 0 && run.turbo <= 0 && Math.floor(T * 16) % 2 === 0;
   const yaw = pz.boardYaw + pz.spin;
@@ -4551,12 +4628,15 @@ function drawScreenFx() {
   speedFx = damp(speedFx, sp, 4, lastDt);
   if (speedFx > .05) {
     const n = Math.round(SPEED_LINES.length * Math.min(1, speedFx / 1.3));
+    ctx.lineCap = 'round'; ctx.lineWidth = Math.max(1, V.u * 1.2);
     for (let i = 0; i < n; i++) {
-      const L2 = SPEED_LINES[i], cyc = L2.k + T * L2.sp, k = cyc % 1, a = L2.a + Math.floor(cyc) * 2.399;
-      if (Math.sin(k * PI) < .3) continue;
+      const L2 = SPEED_LINES[i], cyc = L2.k + T * L2.sp, k = cyc % 1, a = L2.a + Math.floor(cyc) * 2.399, vis = Math.sin(k * PI);
+      if (vis < .3) continue;
       const r0 = H * (.34 + k * .5), r1 = r0 + H * L2.len * (.6 + k), ca = Math.cos(a), sa = Math.sin(a);
-      pline(V.cx + ca * r0 * 1.5, V.hy + sa * r0, V.cx + ca * r1 * 1.5, V.hy + sa * r1, i % 3 ? '#ffffff' : LK.ripple2);
+      ctx.globalAlpha = Math.min(1, (vis - .3) * 2.2) * .8; ctx.strokeStyle = i % 3 ? '#ffffff' : LK.ripple2;
+      ctx.beginPath(); ctx.moveTo(V.cx + ca * r0 * 1.5, V.hy + sa * r0); ctx.lineTo(V.cx + ca * r1 * 1.5, V.hy + sa * r1); ctx.stroke();
     }
+    ctx.globalAlpha = 1;
   }
   if (WORLD.id === 'tropen') drawVibe(W, H, LK);
   const fx = WORLD.look.fx;
@@ -5117,7 +5197,8 @@ function frame(now) {
   frozenDrawn = false;
   lastDt = dt;
   timeScale = damp(timeScale, targetTimeScale, 10, dt);
-  if (state !== 'loading') update(dt * DEV.slow * (state === 'play' ? timeScale : 1));
+  if (hitStop > 0) hitStop = Math.max(0, hitStop - dt);
+  else if (state !== 'loading') update(dt * DEV.slow * (state === 'play' ? timeScale : 1));
   updateCamera(dt);
   render();
   UI.tick(dt);
