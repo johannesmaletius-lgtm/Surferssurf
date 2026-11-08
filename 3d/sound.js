@@ -72,6 +72,7 @@ export const fx = {
   jump() { hiss({ dur: 0.32, vol: 0.26, f: 700, f2: 2600, q: 0.9 }); tone({ f: 260, f2: 540, dur: 0.2, vol: 0.09, type: 'triangle' }); },
   land() { hiss({ dur: 0.42, vol: 0.34, f: 2400, f2: 300, type: 'lowpass' }); },
   crash() { hiss({ dur: 1.3, vol: 0.6, f: 2600, f2: 160, type: 'lowpass' }); tone({ f: 330, f2: 70, type: 'sawtooth', dur: 0.7, vol: 0.09 }); tone({ f: 90, f2: 40, dur: 0.5, vol: 0.4, delay: 0.02 }); },
+  duck() { hiss({ dur: 0.5, vol: 0.34, f: 400, f2: 1800, type: 'lowpass' }); tone({ f: 180, f2: 90, dur: 0.25, vol: 0.1 }); },
   dolphin(pan, vol) { hiss({ dur: 0.55, vol: 0.25 * vol, f: 1800, f2: 300, type: 'lowpass', pan }); tone({ f: 1900, f2: 2600, type: 'sine', dur: 0.12, vol: 0.03 * vol, delay: 0.05 }); },
   start() { [0, 4, 7, 12].forEach((s, i) => tone({ f: 587 * 2 ** (s / 12), type: 'triangle', dur: 0.2, vol: 0.12, delay: i * 0.06 })); },
 };

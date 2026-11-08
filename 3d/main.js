@@ -368,7 +368,7 @@ blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 /* =========================================================================
    Posen
    ========================================================================= */
-const P = { x: 0, lane: 0, fromX: 0, toX: 0, laneT: 1, z: 0, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, trickT: 0, flinch: 0 };
+const P = { x: 0, lane: 0, fromX: 0, toX: 0, laneT: 1, z: 0, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, trickT: 0, flinch: 0, duck: 0 };
 const SEC = { hx: 0, hvx: 0, hy: 0, hvy: 0 };
 const J = {}; ['hip', 'chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'hdL', 'hdR', 'knL', 'knR', 'ftL', 'ftR', 'hpL', 'hpR'].forEach(k => J[k] = new THREE.Vector3());
 function pose(t, dt) {
@@ -377,12 +377,14 @@ function pose(t, dt) {
   if (P.air) { const k = smooth01((P.airT - 0.05) / 0.25); crouch = lerp(0.2, 0.75, k); tuck = k; armUp = 0.6; }
   if (P.landT > 0) { const ph = 1 - P.landT / 0.34, c = Math.exp(-ph * 4.2) * Math.cos(ph * 7.5) * smooth01(P.landT / 0.06); crouch += 0.45 * c; armUp -= 0.3 * c; }
   crouch += Math.abs(lean) * 0.18;
+  const dk = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0;
+  crouch = lerp(crouch, 1.2, dk);
   // Füße stehen fest auf dem Brett (Regular: linker Fuß vorne)
   J.ftL.set(0.02, 0.12, -0.42); J.ftR.set(-0.02, 0.12, 0.36);
   const hipY = 1.02 - crouch * 0.42;
   J.hip.set(0.05 - lean * 0.12, hipY, -0.03);
   // Oberkörper: seitlich zur Fahrtrichtung, beugt sich vor und in die Kurve
-  const fwd = 0.25 + crouch * 0.35 + tuck * 0.2;
+  const fwd = 0.25 + crouch * 0.35 + tuck * 0.2 + dk * 0.55;
   const tilt = lean * 0.35 + Math.sin(t * 1.1) * 0.03;
   J.chest.set(J.hip.x + Math.sin(tilt) * 0.5 + fwd * 0.12, J.hip.y + Math.cos(tilt) * 0.5 * (1 - fwd * 0.25), J.hip.z - fwd * 0.2);
   J.neck.copy(J.chest).add(_v1.set(Math.sin(tilt) * 0.12, 0.13, -0.03));
@@ -394,6 +396,7 @@ function pose(t, dt) {
   const aL = armA + armUp + lean * 0.7 + sway + SEC.hx * 0.2, aR = armA + armUp - lean * 0.7 - sway - SEC.hx * 0.2;
   J.hdL.copy(J.shL).add(_v1.set(-0.5 - Math.cos(aL) * 0.06 + tuck * 0.15, -0.3 + (aL - 0.95) * 0.45, -0.1 + tuck * 0.05));
   J.hdR.copy(J.shR).add(_v1.set(0.5 + Math.cos(aR) * 0.06 - tuck * 0.15, -0.3 + (aR - 0.95) * 0.45, 0.04 + tuck * 0.05));
+  if (dk > 0) { J.hdL.lerp(_v1.set(-0.32, 0.42, -0.62), dk); J.hdR.lerp(_v2.set(0.32, 0.38, -0.3), dk); }
   if (P.trick === 'grab' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdL.lerp(_v1.set(0.3, 0.2, -0.1), w); }
   if (P.trick === 'shaka' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdR.lerp(_v1.copy(J.shR).add(_v2.set(0.05, 0.55, 0.15)), w); }
   ik(J.hpL, J.ftL, 0.46, 0.46, _v1.set(1, 0.2, -0.3), J.knL);
@@ -524,6 +527,8 @@ function updateBuoys() {
 const OBS_TYPES = {
   rock: { w: 2.1, d: 1.8, h: 2.6, jump: false },
   log: { w: 2.3, d: 0.8, h: 0.6, jump: true },
+  turtle: { w: 1.8, d: 1.6, h: 0.6, jump: true },
+  arch: { w: 12, d: 1.4, h: 9, jump: false, duck: true },
 };
 const obstacles = [];
 const ROCKS = [0, 1, 2, 3].map(s => makeRockMesh(100 + s, 1.25, 1.8, 1.1, true));
@@ -537,12 +542,52 @@ const foamTex = (() => { const c = document.createElement('canvas'); c.width = c
   return new THREE.CanvasTexture(c); })();
 const foamMat = new THREE.MeshBasicMaterial({ map: foamTex, transparent: true, depthWrite: false, fog: true });
 const foamGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+// Felsbogen über alle Spuren: nur geduckt kommt man durch
+const ARCH = (() => {
+  const g = new THREE.Group();
+  for (const sd of [-1, 1]) { const pl = makeRockMesh(300 + sd, 1.2, 2.6, 1.1, true); pl.position.set(sd * 5.4, -0.3, 0); g.add(pl); }
+  const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(-5.6, 1.45, 0), new THREE.Vector3(-3.2, 1.95, 0), new THREE.Vector3(0, 2.2, 0), new THREE.Vector3(3.2, 1.95, 0), new THREE.Vector3(5.6, 1.45, 0)]);
+  const tg = new THREE.TubeGeometry(curve, 40, 0.5, 10, false), tp = tg.attributes.position;
+  for (let i = 0; i < tp.count; i++) { const x = tp.getX(i), y = tp.getY(i), z = tp.getZ(i), n = vnoise(x * 1.3 + 3, z * 2 + y) - 0.5; tp.setXYZ(i, x, y + n * 0.18, z * 1.25 + n * 0.12); }
+  tg.computeVertexNormals();
+  g.add(withOutline(new THREE.Mesh(tg, M_ROCK), 0.03));
+  const moss = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.3, 8, false), toon('#5aa04a')); moss.position.y = 0.32; moss.scale.z = 1.6; g.add(moss);
+  // Lianen hängen herab
+  for (let i = 0; i < 9; i++) { const x = -4 + i, top = curve.getPoint((x + 5.6) / 11.2).y - 0.4, len = rand(0.25, 0.6);
+    const v = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, len, 5), toon('#3f8a3a')); v.position.set(x + rand(-0.3, 0.3), top - len / 2, rand(-0.2, 0.2)); g.add(v);
+    const lf = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4).scale(1, 0.6, 1), toon('#5cb848')); lf.position.set(v.position.x, top - len, v.position.z); g.add(lf); }
+  return g;
+})();
+// Meeresschildkröte: flacher Panzer mit Wabenmuster, paddelnde Flossen
+const shellTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#6b7a2e'; x.fillRect(0, 0, 128, 128);
+  x.strokeStyle = '#3e4a18'; x.lineWidth = 4; x.fillStyle = '#8a9a3c';
+  for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) { const cx = i * 30 + (j % 2) * 15 - 4, cy = j * 26 + 6; x.beginPath(); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + Math.PI / 6; x.lineTo(cx + Math.cos(a) * 13, cy + Math.sin(a) * 13); } x.closePath(); x.fill(); x.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+function makeTurtle() {
+  const g = new THREE.Group(), skin = toon('#8fbf6a');
+  const shell = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.8, 20, 12, 0, TAU, 0, Math.PI / 2).scale(1, 0.42, 1.15), toon('#ffffff', { map: shellTex })), 0.03); g.add(shell);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.86, 0.08, 20).scale(1, 1, 1.15), toon('#c9b77a')); rim.position.y = 0.02; g.add(rim);
+  const head = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10).scale(1, 0.85, 1.2), skin), 0.02); head.position.set(0, 0.1, -1.05); g.add(head);
+  for (const sd of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: '#141a24' })); e.position.set(sd * 0.13, 0.17, -1.2); g.add(e); }
+  const fl = [];
+  for (const [sx, sz, big] of [[-1, -0.55, 1], [1, -0.55, 1], [-1, 0.6, 0], [1, 0.6, 0]]) {
+    const piv = new THREE.Group(); piv.position.set(sx * 0.7, 0, sz); g.add(piv);
+    const f = withOutline(new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6).scale(big ? 0.45 : 0.25, 0.05, big ? 0.18 : 0.14), skin), 0.015); f.position.x = sx * (big ? 0.38 : 0.2); piv.add(f);
+    fl.push({ piv, sx, big });
+  }
+  g.userData.fl = fl; return g;
+}
+const TURTLE = makeTurtle();
 function addObstacle(type, lane, z) {
-  const mesh = type === 'rock' ? pick(ROCKS).clone() : LOG.clone();
+  const mesh = type === 'rock' ? pick(ROCKS).clone() : type === 'arch' ? ARCH.clone() : type === 'turtle' ? TURTLE.clone() : LOG.clone();
+  if (type === 'turtle') mesh.userData.fl = mesh.children.filter(c => c.type === 'Group').map((piv, i) => ({ piv, sx: i % 2 ? 1 : -1, big: i < 2 }));
+  if (type === 'arch') lane = 0;
   mesh.rotation.y = type === 'rock' ? rand(TAU) : 0;
   const o = { type, lane, x: lane * LANE_W, z, mesh, ...OBS_TYPES[type], hit: false, ph: rand(TAU) };
   mesh.position.set(o.x, 0, z); scene.add(mesh); obstacles.push(o);
-  o.foam = new THREE.Mesh(foamGeo, foamMat); o.foam.scale.set(type === 'rock' ? 3.6 : 3.4, 1, type === 'rock' ? 3.2 : 1.6); o.foam.renderOrder = 1; scene.add(o.foam);
+  if (type === 'arch') { o.foam = new THREE.Group(); for (const sd of [-1, 1]) { const f2 = new THREE.Mesh(foamGeo, foamMat); f2.scale.set(3.4, 1, 3); f2.position.set(sd * 5.4, 0.05, 0); f2.renderOrder = 1; mesh.add(f2); } }
+  else { o.foam = new THREE.Mesh(foamGeo, foamMat); const fs = { rock: [3.6, 3.2], log: [3.4, 1.6], turtle: [2.8, 3] }[type]; o.foam.scale.set(fs[0], 1, fs[1]); o.foam.renderOrder = 1; }
+  scene.add(o.foam);
   return o;
 }
 
@@ -751,23 +796,33 @@ const CR = { body: new THREE.Vector3(), vel: new THREE.Vector3(), rot: 0, board:
 const camState = { pos: new THREE.Vector3(0, 3, 7), look: new THREE.Vector3(), fov: 0 };
 function reset() {
   for (const o of obstacles) scene.remove(o.mesh, o.foam); obstacles.length = 0; coins.length = 0;
-  Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null });
+  Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, duck: 0 });
   runCoins = 0; startZ = P.z; nextRowZ = P.z - 45;
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
 }
 function start() { const first = state === 'ready'; reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
 function moveLane(d) { if (state !== 'play' || !P.alive) return; const nl = clamp(P.lane + d, -1, 1); if (nl === P.lane) return; P.lane = nl; P.fromX = P.x; P.toX = nl * LANE_W; P.laneT = 0; Sound.fx.swish();
   for (let i = 0; i < 18; i++) addPart(P.x - d * 0.2, P.y + 0.1, P.z + rand(-0.4, 0.6), -d * rand(2, 5), rand(1.5, 4), rand(-1, 1), rand(0.4, 0.7), rand(0.08, 0.16), '#ffffff'); }
+const DUCK_T = 0.8;
+function duck() {
+  if (state !== 'play' || !P.alive) return;
+  if (P.air) { P.vy = Math.min(P.vy, -16); P.trick = null; P.duckBuf = true; return; }
+  if (P.duck <= 0) Sound.fx.duck();
+  P.duck = DUCK_T;
+  for (let i = 0; i < 14; i++) addPart(P.x + rand(-0.5, 0.5), P.y + 0.1, P.z + rand(-0.3, 0.8), rand(-2.5, 2.5), rand(1.5, 3.5), rand(-1, 2), rand(0.4, 0.7), rand(0.08, 0.15), '#ffffff');
+}
 function jump() { if (state !== 'play' || !P.alive || P.air) return; P.air = true; P.vy = 9.2; P.airT = 0; P.trick = Math.random() < 0.4 ? null : pick(['grab', 'shaka', 'spin']); P.trickT = 0; Sound.fx.jump();
   for (let i = 0; i < 16; i++) addPart(P.x + rand(-0.4, 0.4), P.y + 0.05, P.z + rand(-0.6, 0.6), rand(-1.5, 1.5), rand(2, 5), rand(-1, 1), rand(0.4, 0.8), rand(0.08, 0.16), '#ffffff'); }
-function land() { P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6; Sound.fx.land();
+function land() { P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6; Sound.fx.land(); if (P.duckBuf) { P.duckBuf = false; P.duck = DUCK_T * 0.8; }
   for (let i = 0; i < 30; i++) { const a = rand(TAU); addPart(P.x + Math.cos(a) * 0.5, P.y + 0.05, P.z + Math.sin(a) * 0.9, Math.cos(a) * rand(1, 3.5), rand(1.5, 4), Math.sin(a) * rand(1, 3) + 2, rand(0.4, 0.8), rand(0.09, 0.18), '#ffffff'); } }
 let camKick = 0, camKickV = 0, coinStreak = 0, lastCoinT = -9, camBlendT = 0;
 
 function spawnRow(z) {
   const r = Math.random(), lanes = [-1, 0, 1];
   const free = pick(lanes);
-  if (r < 0.45) { for (const l of lanes) if (l !== free && Math.random() < 0.7) addObstacle('rock', l, z); }
+  if (r < 0.12 && P.z < startZ - 60) { addObstacle('arch', 0, z); for (let i = 0; i < 5; i++) addCoin(free * LANE_W, 0.55, z + 4 - i * 2); return; }
+  if (r < 0.2) { const l = pick(lanes); addObstacle('turtle', l, z); for (let i = -2; i <= 2; i++) addCoin(l * LANE_W, 1.2 + Math.cos(i / 2.5 * Math.PI / 2) * 1.6, z + i * 1.4); return; }
+  if (r < 0.5) { for (const l of lanes) if (l !== free && Math.random() < 0.7) addObstacle('rock', l, z); }
   else if (r < 0.75) { const l = pick(lanes); addObstacle('log', l, z); for (let i = -2; i <= 2; i++) addCoin(l * LANE_W, 1.2 + Math.cos(i / 2.5 * Math.PI / 2) * 1.6, z + i * 1.4); }
   else { const l = pick(lanes); addObstacle('rock', l, z); }
   if (Math.random() < 0.8) { const l = free; for (let i = 0; i < 6; i++) addCoin(l * LANE_W, 0.9, z + 10 - i * 2.2); }
@@ -777,6 +832,7 @@ function collide() {
     if (o.hit || Math.abs(o.z - P.z) > o.d / 2 + 0.6) continue;
     if (Math.abs(o.x - P.x) > o.w / 2 + 0.25) continue;
     if (o.jump && P.y - waveH(P.x, P.z, 3) > o.h * 0.75) continue;
+    if (o.duck && P.duck > 0 && !P.air) continue;
     o.hit = true; crash(o); return;
   }
   for (const c of coins) { if (c.taken) continue; if (Math.abs(c.z - P.z) < 0.8 && Math.abs(c.x - P.x) < 0.9 && Math.abs(c.y - (P.y + 0.9)) < 1.3) { c.taken = true; runCoins++; $('coins').textContent = runCoins; coinStreak = time - lastCoinT < 0.6 ? coinStreak + 1 : 0; lastCoinT = time; Sound.fx.coin(coinStreak);
@@ -805,7 +861,7 @@ function update(dt) {
     const wy = waveH(P.x, P.z) + 0.06;
     if (P.air) { P.airT += dt; P.vy -= 26 * dt; P.y += P.vy * dt; if (P.trick) P.trickT += dt; if (P.y <= wy) { P.y = wy; land(); } }
     else P.y = damp(P.y, wy, 30, dt);
-    P.landT = Math.max(0, P.landT - dt);
+    P.landT = Math.max(0, P.landT - dt); P.duck = Math.max(0, P.duck - dt);
     // Gischt an den Kanten des Bretts
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
@@ -826,7 +882,9 @@ function update(dt) {
   }
   // Hindernisse treiben auf den Wellen und verschwinden hinter der Kamera
   for (let i = obstacles.length - 1; i >= 0; i--) { const o = obstacles[i]; if (o.z > P.z + 15) { scene.remove(o.mesh, o.foam); obstacles.splice(i, 1); continue; }
-    const h = waveH(o.x, o.z, 3); o.mesh.position.y = o.type === 'log' ? h + 0.12 : h * 0.4 - 0.25; o.foam.position.set(o.x, h + 0.05, o.z); o.foam.rotation.y = time * 0.3 + o.ph; if (o.type === 'log') { waveN(o.x, o.z); o.mesh.rotation.z = _n.x * -0.8; o.mesh.rotation.x = _n.z * 0.8; } }
+    if (o.type === 'arch') o.mesh.visible = o.z < P.z + 0.9; // hinter dem Surfer ausblenden, sonst fliegt die Kamera hindurch
+    const h = waveH(o.x, o.z, 3); o.mesh.position.y = o.type === 'log' ? h + 0.12 : o.type === 'turtle' ? h - 0.05 : o.type === 'arch' ? 0 : h * 0.4 - 0.25;
+    if (o.type === 'turtle') { for (const f of o.mesh.userData.fl) f.piv.rotation.z = Math.sin(time * 3 + o.ph + (f.big ? 0 : 1.5)) * (f.big ? 0.5 : 0.3) * f.sx; o.mesh.rotation.y = Math.sin(time * 0.7 + o.ph) * 0.25; o.z -= dt * 0.8; o.mesh.position.z = o.z; } o.foam.position.set(o.x, h + 0.05, o.z); o.foam.rotation.y = time * 0.3 + o.ph; if (o.type === 'log') { waveN(o.x, o.z); o.mesh.rotation.z = _n.x * -0.8; o.mesh.rotation.x = _n.z * 0.8; } }
   for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; if (c.z > P.z + 12) coins.splice(i, 1); else if (c.taken) c.t += dt; }
   for (const isl of islands) if (isl.position.z > P.z + 40) { isl.position.z -= islands.length * 38; isl.position.x = isl.userData.side * rand(16, 30); isl.rotation.y = rand(TAU); }
   islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, isl.userData.r * 0.97, 0));
@@ -898,7 +956,7 @@ let last = performance.now(), acc = 0, frames = 0, slowFor = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dtReal = Math.min(0.05, (now - last) / 1000); last = now;
-  if (hitStop > 0) hitStop -= dtReal; else update(dtReal);
+  if (hitStop > 0) hitStop -= dtReal; else if (!(window.surf3d && surf3d.freeze)) update(dtReal);
   shake = Math.max(0, shake - dtReal * 1.8);
   syncScene(dtReal);
   composer.render(dtReal);
@@ -917,6 +975,7 @@ addEventListener('keydown', e => {
   if (k === 'arrowleft' || k === 'a') moveLane(-1);
   else if (k === 'arrowright' || k === 'd') moveLane(1);
   else if (k === 'arrowup' || k === 'w' || k === ' ') jump();
+  else if (k === 'arrowdown' || k === 's') duck();
   else return;
   e.preventDefault();
 });
@@ -925,7 +984,7 @@ canvas.addEventListener('pointerdown', e => { tStart = { x: e.clientX, y: e.clie
 canvas.addEventListener('pointerup', e => {
   if (!tStart) return; const dx = e.clientX - tStart.x, dy = e.clientY - tStart.y; tStart = null;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) { jump(); return; }
-  if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump();
+  if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else duck();
 });
 $('go').addEventListener('click', start);
 const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
