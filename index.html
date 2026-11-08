@@ -926,6 +926,24 @@ function genCloud(seed, cols) {
   return p.canvas();
 }
 
+/** Cartoon-Wolke in Weltfarben (gleiche Größe wie die alte Pixelwolke × SM): weiche runde Ballen, Licht oben, Schatten unten */
+function makeCloudSoft(seed, cols) {
+  const R = mulberry(seed * 71 + 11), w = 84 * SM, h = 26 * SM;
+  return mk(w, h, x => {
+    const n = 6 + Math.floor(R() * 4), blobs = [];
+    for (let i = 0; i < n; i++) { const t = i / (n - 1), r = lerp(4, 10, Math.sin(t * PI)) * (.7 + R() * .4) * SM; blobs.push([lerp(10, 84 - 10, t) * SM, h - 4 * SM - r * .6, r * 1.25, r]); }
+    for (let i = 0; i < 3; i++) { const b = blobs[1 + Math.floor(R() * (n - 2))]; blobs.push([b[0] + (R() - .5) * 8 * SM, b[1] - b[3] * .45, b[2] * .7, b[3] * .7]); }
+    const base = h - 3 * SM, shape = () => { x.beginPath(); for (const b of blobs) { x.moveTo(b[0] + b[2], b[1]); x.ellipse(b[0], b[1], b[2], b[3], 0, 0, TAU); } };
+    x.save(); x.beginPath(); x.rect(0, 0, w, base); x.clip();
+    shape(); x.fillStyle = cols[1]; x.fill();
+    x.globalCompositeOperation = 'source-atop';
+    const gr = x.createLinearGradient(0, h * .2, 0, base); gr.addColorStop(0, cols[2]); gr.addColorStop(.55, cols[1]); gr.addColorStop(1, cols[0]); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+    for (const b of blobs) { x.fillStyle = cols[2]; x.beginPath(); x.ellipse(b[0] - b[2] * .12, b[1] - b[3] * .2, b[2] * .78, b[3] * .66, 0, 0, TAU); x.fill(); }
+    for (const b of blobs) { x.fillStyle = cols[3]; x.globalAlpha = .85; x.beginPath(); x.ellipse(b[0] - b[2] * .25, b[1] - b[3] * .42, b[2] * .42, b[3] * .3, 0, 0, TAU); x.fill(); x.globalAlpha = 1; }
+    x.fillStyle = cols[0]; x.globalAlpha = .55; x.fillRect(0, base - 2.2 * SM, w, 2.2 * SM); x.globalAlpha = 1;
+    x.restore();
+  });
+}
 /* ---------- Ferne Silhouetten (kachelbar) ---------- */
 function genStrip(kind, cols, seed, H = 56) {
   const W = 320, p = new Pix(W, H), R = mulberry(seed), c = cols.map(C);
@@ -1251,6 +1269,23 @@ function scale2x(src) {
   x.putImageData(od, 0, 0); return out;
 }
 const smooth4 = c => scale2x(scale2x(c));
+/** Pixelgrafik weich vergrößern: glatt hochskalieren und die Kanten wieder scharf ziehen – runde Umrisse statt Treppen */
+function softUp(src, f = SM, wrapX = false) {
+  const w = src.width, h = src.height, W2 = w * f, H2 = h * f, pad = wrapX ? f * 2 : 0;
+  const c = document.createElement('canvas'); c.width = W2; c.height = H2;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  if (wrapX) for (const o of [-1, 0, 1]) x.drawImage(src, o * W2, 0, W2, H2); else x.drawImage(src, 0, 0, W2, H2);
+  const img = x.getImageData(0, 0, W2, H2), d = img.data, n = W2 * H2;
+  // Alpha weichzeichnen (2× Box ≈ Gauß), dann bei 50 % schneiden: Treppenstufen werden zu glatten Linien
+  let A = new Float32Array(n), B = new Float32Array(n); for (let i = 0; i < n; i++) A[i] = d[i * 4 + 3];
+  const r = Math.max(1, Math.round(f * .55)), k = 1 / (r * 2 + 1);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < H2; y++) { const o = y * W2; for (let xx = 0; xx < W2; xx++) { let sum = 0; for (let j = -r; j <= r; j++) { let q = xx + j; if (q < 0 || q >= W2) { if (!wrapX) continue; q = (q + W2) % W2; } sum += A[o + q]; } B[o + xx] = sum * k; } }
+    for (let xx = 0; xx < W2; xx++) for (let y = 0; y < H2; y++) { let sum = 0; for (let j = -r; j <= r; j++) { const q = y + j; if (q >= 0 && q < H2) sum += B[q * W2 + xx]; } A[y * W2 + xx] = sum * k; }
+  }
+  for (let i = 0; i < n; i++) { const a = A[i] / 255; d[i * 4 + 3] = a <= .4 ? 0 : a >= .6 ? 255 : Math.round((a - .4) / .2 * 255); }
+  x.putImageData(img, 0, 0); void pad; return c;
+}
 function smoothAll(obj) { for (const k in obj) { const v = obj[k]; if (v instanceof HTMLCanvasElement) obj[k] = smooth4(v); else if (v && typeof v === 'object') smoothAll(v); } }
 function buildSprites(progress) {
   const steps = [
@@ -2266,7 +2301,7 @@ function makeRuin(seed) {
 const LANE_W = 2.5;
 const CAM_BACK = 5.2;
 const BOARD_L = 2.25, BOARD_HW = .29, BOARD_T = .06, BOARD_PIVOT = .36;
-const V = { W: 0, H: 0, cx: 0, hy: 0, f: 1, camX: 0, camY: 3, camZ: 0, baseCamY: 3, feetFrac: .86, roll: 0, q: 2, dpr: 1 };
+const V = { u: 1, W: 0, H: 0, cx: 0, hy: 0, f: 1, camX: 0, camY: 3, camZ: 0, baseCamY: 3, feetFrac: .86, roll: 0, q: 2, dpr: 1 };
 let g = null; // aktueller Zeichenkontext (wird für Shop-Vorschauen umgebogen)
 function proj(x, y, z) {
   const zc = z - V.camZ;
@@ -3461,8 +3496,8 @@ function waterPal(LK) { return { base: LK.water[1], light: hexTriple(tone(LK.wat
 function buildWorld(id) {
   if (WS[id]) return WS[id];
   const S = {}, LK = LOOK[id];
-  S.strips = LK.strips.map((st, i) => smooth4(genStrip(st.kind, st.cols, 4242 + i * 99 + id.length * 7, st.h)));
-  S.cloud = LK.cloud ? [1, 2, 3, 4].map(s => smooth4(genCloud(s, LK.cloud))) : null;
+  S.strips = LK.strips.map((st, i) => softUp(genStrip(st.kind, st.cols, 4242 + i * 99 + id.length * 7, st.h), SM, true));
+  S.cloud = LK.cloud ? [1, 2, 3, 4].map(s => makeCloudSoft(s, LK.cloud)) : null;
   S.water = waterLods(id === 'lava' ? { lava: true } : waterPal(LK));
   switch (id) {
     case 'tropen':
@@ -3941,16 +3976,18 @@ function qualityTick(interval) {
   if (fps < 48) { Q.good = 0; if (Q.level > 0) { Q.level--; Q.downed = true; save.autoLevel = Q.level; persist(); qualityChanged(); } else if (fps < 44) Q.cap30 = true; return; }
   if (fps > 57 && Q.level < 2 && !Q.downed && !Q.tried) { if (++Q.good >= 4) { Q.tried = true; Q.level++; save.autoLevel = Q.level; persist(); qualityChanged(); } } else Q.good = 0;
 }
-const PIX_TARGET = [300, 380, 460];
+const PIX_TARGET = [360, 540, 720];
 const STREAK_N = [40, 60, 80], GLINT_N = [16, 30, 46], PART_CAP = [260, 460, 650];
 
 function resize() {
   const cssW = Math.max(1, innerWidth), cssH = Math.max(1, innerHeight), ql = qualityLevel();
   const dpr = window.devicePixelRatio || 1, devW = cssW * dpr, devH = cssH * dpr;
-  const scale = Math.max(1, Math.round(Math.min(devW, devH) / PIX_TARGET[ql]));
-  cv.width = Math.ceil(devW / scale); cv.height = Math.ceil(devH / scale);
-  cv.style.width = (cv.width * scale / dpr) + 'px'; cv.style.height = (cv.height * scale / dpr) + 'px';
+  // stufenlos statt ganzzahlig: der weiche Cartoon-Look braucht kein Pixelraster mehr
+  const scale = Math.max(1, Math.min(devW, devH) / PIX_TARGET[ql]);
+  cv.width = Math.max(1, Math.round(devW / scale)); cv.height = Math.max(1, Math.round(devH / scale));
+  cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
   V.W = cv.width; V.H = cv.height; V.dpr = dpr / scale; V.q = ql; V.pxScale = scale;
+  V.u = Math.min(V.W, V.H) / 360; // Maßeinheit für feste Pixelgrößen (1 = frühere Auflösung)
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   if (typeof frozenDrawn !== 'undefined') frozenDrawn = false;
   const aspect = V.W / V.H;
@@ -4180,8 +4217,8 @@ function drawWater() {
   }
   const b0 = Math.ceil((V.camZ + 3) / 2.5);
   for (let i = Math.floor((V.camZ + 120) / 2.5); i >= b0; i--) {
-    const zc = i * 2.5 - V.camZ, y = yOf(zc), fs = clamp(.28 * f / zc, 1, 7), c = i % 2 ? (LK.buoy || '#ff5a4a') : '#ffffff';
-    for (const sd of [-1, 1]) { const x = xOf(sd * PLAY_EDGE, zc); ctx.fillStyle = OUT; ctx.fillRect(x - fs / 2 - 1, y - fs - 1, fs + 2, fs + 1.5); ctx.fillStyle = c; ctx.fillRect(x - fs / 2, y - fs, fs, fs); }
+    const zc = i * 2.5 - V.camZ, y = yOf(zc), fs = clamp(.28 * f / zc, 1, 7 * V.u), c = i % 2 ? (LK.buoy || '#ff5a4a') : '#ffffff', ol = fs > 3 ? Math.max(1, V.u * .9) : 1;
+    for (const sd of [-1, 1]) { const x = xOf(sd * PLAY_EDGE, zc); ctx.fillStyle = OUT; ctx.fillRect(x - fs / 2 - ol, y - fs - ol, fs + ol * 2, fs + ol * 1.5); ctx.fillStyle = c; ctx.fillRect(x - fs / 2, y - fs, fs, fs); }
   }
 }
 const patM = new DOMMatrix();
@@ -4363,17 +4400,34 @@ function drawPow(pw) {
   const size = Math.max(6, 1.6 * p.s);
   dspr(SPR.pow[pw.type], p.x - size / 2, p.y - size / 2, size, size);
 }
+/** Tropfen & Blasen als fertige, weiche Bilder: schneller als Kreise malen und mit sanftem Rand */
+const DOTS = new Map();
+function dotSpr(col, ring) {
+  const key = col + (ring ? '|r' : ''); let c = DOTS.get(key); if (c) return c;
+  const [r, gg, b] = hexRGB(col), rgba = a => `rgba(${r},${gg},${b},${a})`;
+  c = mk(48, 48, x => {
+    if (ring) {
+      const gr = x.createRadialGradient(24, 24, 10, 24, 24, 23); gr.addColorStop(0, rgba(.08)); gr.addColorStop(.72, rgba(.28)); gr.addColorStop(.86, rgba(.95)); gr.addColorStop(1, rgba(0));
+      x.fillStyle = gr; x.fillRect(0, 0, 48, 48);
+      x.fillStyle = 'rgba(255,255,255,.9)'; x.beginPath(); x.ellipse(16, 15, 5, 3.4, -.6, 0, TAU); x.fill();
+    } else {
+      const gr = x.createRadialGradient(20, 19, 0, 24, 24, 24); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, rgba(1)); gr.addColorStop(.7, rgba(.88)); gr.addColorStop(1, rgba(0));
+      x.fillStyle = gr; x.fillRect(0, 0, 48, 48);
+    }
+  });
+  DOTS.set(key, c); return c;
+}
 function drawPart(pt) {
   const p = proj(pt.x, pt.y, pt.z); if (!p) return;
   const k = pt.life / pt.max;
   switch (pt.type) {
-    case 'drop': { const r = Math.max(.8, pt.size * p.s * .45); ctx.globalAlpha = Math.min(1, k * 2); ctx.fillStyle = pt.col; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; break; }
+    case 'drop': { const r = Math.max(.8, pt.size * p.s * .45) * 1.25; ctx.globalAlpha = Math.min(1, k * 2); ctx.drawImage(dotSpr(pt.col), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
     case 'foam': { const r = Math.max(1, Math.round(.09 * p.s)), sp = pt.size * (1.6 - k) * p.s; ctx.globalAlpha = Math.min(1, k * 1.5); ctx.fillStyle = k > .5 ? '#ffffff' : WL().foam[1]; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(p.x + sd * sp, p.y, r, r * .55, 0, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; break; }
     case 'ring': { const r = pt.size * (1.3 - k) * p.s; if (r < 1) break; const c = k > .4 ? '#ffffff' : WL().foam[2], sz = Math.max(1, Math.round(.1 * p.s)); for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) frect(p.x + sd * r * (.6 + i * .2) - sz / 2, p.y + i % 2, sz * (2 - i * .5), Math.max(1, sz * .6), c); break; }
     case 'spark': { const r = Math.max(1, Math.round(pt.size * p.s * (.4 + k * .6))); frect(p.x - r, p.y, r * 2 + 1, 1, pt.col); frect(p.x, p.y - r, 1, r * 2 + 1, pt.col); frect(p.x, p.y, 1, 1, '#ffffff'); break; }
     case 'ember': { const r = Math.max(1, Math.round(pt.size * p.s * (.5 + k * .6))); frect(p.x - r, p.y - r, r * 2, r * 2, '#ff6a1a'); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r), Math.max(1, r), pt.col); break; }
     case 'chunk': { const r = Math.max(2, Math.round(pt.size * p.s)); frect(p.x - r / 2 - 1, p.y - r / 2 - 1, r + 2, r + 2, OUT); frect(p.x - r / 2, p.y - r / 2, r, r, pt.col); frect(p.x - r / 2, p.y - r / 2, Math.max(1, r / 2), 1, '#ffffff55'); break; }
-    case 'bubble': { const r = Math.max(1, pt.size * p.s * .6); ctx.globalAlpha = Math.min(1, k * 1.5); ctx.strokeStyle = pt.col; ctx.lineWidth = Math.max(1, r * .25); ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; break; }
+    case 'bubble': { const r = Math.max(1, pt.size * p.s * .6) * 1.12; ctx.globalAlpha = Math.min(1, k * 1.5); ctx.drawImage(dotSpr(pt.col, true), p.x - r, p.y - r, r * 2, r * 2); ctx.globalAlpha = 1; break; }
   }
 }
 
