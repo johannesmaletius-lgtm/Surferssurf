@@ -1,5 +1,6 @@
 // Surfers Surf 3D – Prototyp mit Three.js (MIT, siehe vendor/LICENSE-three.txt)
 import * as THREE from './vendor/three.min.js';
+import * as Sound from './sound.js';
 const { EffectComposer, RenderPass, UnrealBloomPass, OutputPass, ShaderPass, FXAAShader } = THREE;
 
 /* =========================================================================
@@ -580,6 +581,7 @@ for (let i = 0; i < 3; i++) { const m = makeDolphin(); scene.add(m); dolphins.pu
 function respawnDolphin(d) { d.side = Math.random() < 0.5 ? -1 : 1; d.x = d.side * rand(7, 11); d.z = P.z - rand(30, 70); d.t = -1; d.wait = rand(0.8, 3); }
 dolphins.forEach(respawnDolphin);
 function splash(x, y, z, n, s = 1) { for (let i = 0; i < n; i++) { const a = rand(TAU); addPart(x + Math.cos(a) * 0.3, y, z + Math.sin(a) * 0.5, Math.cos(a) * rand(0.5, 2.5) * s, rand(2, 5) * s, Math.sin(a) * rand(0.5, 2) * s, rand(0.5, 0.9), rand(0.1, 0.2), '#ffffff'); } }
+function dolphinSound(d) { const dist = Math.hypot(d.x - P.x, d.z - P.z); if (dist < 45) Sound.fx.dolphin(clamp((d.x - P.x) / 10, -1, 1), clamp(1.4 - dist / 35, 0.1, 1)); }
 function updateDolphins(dt) {
   const sp = state === 'crash' ? 4 : P.speed * 0.93;
   for (const d of dolphins) {
@@ -588,11 +590,11 @@ function updateDolphins(dt) {
     const wy = waveH(d.x, d.z, 3);
     if (d.t < 0) { // schwimmt: nur die Rückenflosse schneidet durchs Wasser
       d.wait -= dt; d.m.position.set(d.x, wy - 0.42, d.z); d.m.rotation.set(0, 0, Math.sin(time * 2 + d.x) * 0.05);
-      if (d.wait <= 0) { d.t = 0; d.dur = rand(1.05, 1.35); d.h = rand(1.6, 2.6); splash(d.x, wy, d.z - 0.8, 14); }
+      if (d.wait <= 0) { d.t = 0; d.dur = rand(1.05, 1.35); d.h = rand(1.6, 2.6); splash(d.x, wy, d.z - 0.8, 14); dolphinSound(d); }
     } else {
       d.t += dt; const q = d.t / d.dur, y = wy - 0.42 + Math.sin(q * Math.PI) * d.h, vy = Math.cos(q * Math.PI) * Math.PI * d.h / d.dur;
       d.m.position.set(d.x, y, d.z); d.m.rotation.set(Math.atan2(vy, sp + 6), 0, Math.sin(q * Math.PI) * 0.15 * d.side);
-      if (q >= 1) { d.t = -1; d.wait = rand(1.5, 4); splash(d.x, wy, d.z + 0.6, 22); }
+      if (q >= 1) { d.t = -1; d.wait = rand(1.5, 4); splash(d.x, wy, d.z + 0.6, 22); dolphinSound(d); }
     }
   }
 }
@@ -753,14 +755,14 @@ function reset() {
   runCoins = 0; startZ = P.z; nextRowZ = P.z - 45;
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
 }
-function start() { reset(); state = 'play'; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); }
-function moveLane(d) { if (state !== 'play' || !P.alive) return; const nl = clamp(P.lane + d, -1, 1); if (nl === P.lane) return; P.lane = nl; P.fromX = P.x; P.toX = nl * LANE_W; P.laneT = 0;
+function start() { const first = state === 'ready'; reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
+function moveLane(d) { if (state !== 'play' || !P.alive) return; const nl = clamp(P.lane + d, -1, 1); if (nl === P.lane) return; P.lane = nl; P.fromX = P.x; P.toX = nl * LANE_W; P.laneT = 0; Sound.fx.swish();
   for (let i = 0; i < 18; i++) addPart(P.x - d * 0.2, P.y + 0.1, P.z + rand(-0.4, 0.6), -d * rand(2, 5), rand(1.5, 4), rand(-1, 1), rand(0.4, 0.7), rand(0.08, 0.16), '#ffffff'); }
-function jump() { if (state !== 'play' || !P.alive || P.air) return; P.air = true; P.vy = 9.2; P.airT = 0; P.trick = Math.random() < 0.4 ? null : pick(['grab', 'shaka', 'spin']); P.trickT = 0;
+function jump() { if (state !== 'play' || !P.alive || P.air) return; P.air = true; P.vy = 9.2; P.airT = 0; P.trick = Math.random() < 0.4 ? null : pick(['grab', 'shaka', 'spin']); P.trickT = 0; Sound.fx.jump();
   for (let i = 0; i < 16; i++) addPart(P.x + rand(-0.4, 0.4), P.y + 0.05, P.z + rand(-0.6, 0.6), rand(-1.5, 1.5), rand(2, 5), rand(-1, 1), rand(0.4, 0.8), rand(0.08, 0.16), '#ffffff'); }
-function land() { P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6;
+function land() { P.air = false; P.vy = 0; P.landT = 0.34; P.trick = null; camKickV -= 1.6; Sound.fx.land();
   for (let i = 0; i < 30; i++) { const a = rand(TAU); addPart(P.x + Math.cos(a) * 0.5, P.y + 0.05, P.z + Math.sin(a) * 0.9, Math.cos(a) * rand(1, 3.5), rand(1.5, 4), Math.sin(a) * rand(1, 3) + 2, rand(0.4, 0.8), rand(0.09, 0.18), '#ffffff'); } }
-let camKick = 0, camKickV = 0;
+let camKick = 0, camKickV = 0, coinStreak = 0, lastCoinT = -9, camBlendT = 0;
 
 function spawnRow(z) {
   const r = Math.random(), lanes = [-1, 0, 1];
@@ -777,11 +779,11 @@ function collide() {
     if (o.jump && P.y - waveH(P.x, P.z, 3) > o.h * 0.75) continue;
     o.hit = true; crash(o); return;
   }
-  for (const c of coins) { if (c.taken) continue; if (Math.abs(c.z - P.z) < 0.8 && Math.abs(c.x - P.x) < 0.9 && Math.abs(c.y - (P.y + 0.9)) < 1.3) { c.taken = true; runCoins++; $('coins').textContent = runCoins;
+  for (const c of coins) { if (c.taken) continue; if (Math.abs(c.z - P.z) < 0.8 && Math.abs(c.x - P.x) < 0.9 && Math.abs(c.y - (P.y + 0.9)) < 1.3) { c.taken = true; runCoins++; $('coins').textContent = runCoins; coinStreak = time - lastCoinT < 0.6 ? coinStreak + 1 : 0; lastCoinT = time; Sound.fx.coin(coinStreak);
     for (let i = 0; i < 10; i++) addPart(c.x, c.y, c.z, rand(-2, 2), rand(0, 3), rand(-2, 2), rand(0.3, 0.6), rand(0.08, 0.15), pick(['#fff4a0', '#ffd23f']), 4); } }
 }
 function crash(o) {
-  P.alive = false; state = 'crash'; crashT = 0; shake = 0.9; hitStop = 0.12;
+  P.alive = false; state = 'crash'; crashT = 0; shake = 0.9; hitStop = 0.12; Sound.fx.crash();
   CR.body.set(0, 0, 0); if (o.type === 'rock') CR.vel.set((Math.random() < 0.5 ? -1 : 1) * rand(1.5, 2.5), 5.5, 3.5); else CR.vel.set(rand(-1, 1), 5.5, -P.speed * 0.25); CR.rot = 0; CR.wet = false;
   CR.board.set(0, 0, 0); CR.bvel.set(rand(-2, 2), 7.5, -P.speed * 0.2); CR.brot.set(rand(-6, 6), rand(-4, 4), rand(8, 12));
   for (let i = 0; i < 60; i++) addPart(P.x + rand(-0.8, 0.8), P.y + rand(0, 1.2), P.z + rand(-0.6, 0.4), rand(-4, 4), rand(2, 7), rand(-6, 1), rand(0.6, 1.1), rand(0.1, 0.24), '#ffffff');
@@ -791,6 +793,7 @@ function update(dt) {
   time += dt;
   const play = state === 'play';
   if (play) P.speed = Math.min(30, P.speed + dt * 0.35);
+  Sound.wind(play ? clamp((P.speed - 12) / 30, 0, 0.45) : 0.04);
   if (state === 'ready') { P.speed = 12; P.x = Math.sin(time * 0.5) * 1.2; P.lean = Math.cos(time * 0.5) * 0.35; }
   if (state !== 'crash') {
     P.z -= P.speed * dt;
@@ -871,6 +874,14 @@ function syncScene(dt) {
   camState.pos.x = damp(camState.pos.x, tx, 6, dt); camState.pos.y = damp(camState.pos.y, ty, 5, dt); camState.pos.z = tz;
   camState.look.set(camState.pos.x * 0.6 + P.x * 0.4, P.y * 0.4 + 0.7, P.z - 6.5);
   camera.position.copy(camState.pos);
+  // Startbildschirm: Kamera kreist langsam um den Surfer, beim Start weicher Übergang in die Verfolgerkamera
+  if (state === 'ready' || camBlendT < 1) {
+    if (state !== 'ready') camBlendT = Math.min(1, camBlendT + dt / 1.3);
+    const e = state === 'ready' ? 0 : smooth01(camBlendT), a = time * 0.16 + 0.5, R = camera.aspect < 0.8 ? 7.5 : 6.2;
+    _v3.set(P.x + Math.sin(a) * R, P.y + 2.3, P.z + Math.cos(a) * R);
+    camera.position.lerpVectors(_v3, camState.pos, e);
+    camState.look.lerpVectors(_v2.set(P.x, P.y + (camera.aspect < 0.8 ? 3.6 : 3.1), P.z), camState.look, e);
+  }
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
   if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride, l = surf3d.lookOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]);
@@ -917,6 +928,11 @@ canvas.addEventListener('pointerup', e => {
   if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump();
 });
 $('go').addEventListener('click', start);
+const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
+sndBtn.addEventListener('click', e => { e.stopPropagation(); Sound.toggle(); syncSnd(); canvas.focus(); }); syncSnd();
+// Meeresrauschen schon im Startbildschirm, sobald der Browser Ton erlaubt (erste Berührung/Taste)
+const wakeAudio = () => { Sound.init(); removeEventListener('pointerdown', wakeAudio); removeEventListener('keydown', wakeAudio); };
+addEventListener('pointerdown', wakeAudio); addEventListener('keydown', wakeAudio);
 $('again').addEventListener('click', start);
 
 resize();
