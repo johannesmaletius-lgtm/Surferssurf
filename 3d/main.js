@@ -2,6 +2,7 @@
 import * as THREE from './vendor/three.min.js';
 import * as Sound from './sound.js';
 import { loadSurfer } from './surfer.js';
+import * as Shop from './shop.js';
 const { EffectComposer, RenderPass, UnrealBloomPass, OutputPass } = THREE;
 
 /* =========================================================================
@@ -19,6 +20,7 @@ const TEST = /[?&]test\b/.test(location.search);
 const QUERY = new URLSearchParams(location.search);
 
 const LANE_W = 2.5, EDGE = 4.6;
+let MAP = 'insel'; // aktuelle Karte: 'insel' (Mittag, Abend) oder 'canyon'
 const canvas = $('c');
 // Kantenglättung direkt im Bildschirmpuffer: auf Handys (Kachel-Grafik) fast kostenlos
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -167,7 +169,7 @@ const waterMat = new THREE.ShaderMaterial({
     uSun: { value: SUN_DIR.clone() }, uDeep: { value: new THREE.Color('#05486e') }, uShallow: { value: new THREE.Color('#1fb8c8') }, uSss: { value: new THREE.Color('#5ff0e0') },
     uZenith: { value: ZENITH.clone() }, uHorizon: { value: HORIZON.clone() }, uSunCol: { value: new THREE.Color('#fff4d8') },
     uWake: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uSpec: { value: 1 }, uIsl: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, -1, 0)) }, uLagoon: { value: new THREE.Color('#38e0cf') }, uSand: { value: new THREE.Color('#bff3dc') },
+    uSpec: { value: 1 }, uIsl: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, -1, 0)) }, uLagoon: { value: new THREE.Color('#38e0cf') }, uSand: { value: new THREE.Color('#bff3dc') }, uCanyon: { value: 0 },
   },
   vertexShader: /* glsl */`
     uniform float uTime; uniform vec3 uCam; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6];
@@ -182,7 +184,7 @@ const waterMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * viewMatrix * wp;
     }`,
   fragmentShader: /* glsl */`
-    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol, uLagoon, uSand; uniform float uSpec; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6]; uniform vec4 uIsl[12];
+    uniform float uTime; uniform vec3 uCam, uSun, uDeep, uShallow, uSss, uZenith, uHorizon, uSunCol, uLagoon, uSand; uniform float uSpec, uCanyon; uniform vec4 uW[6]; uniform float uQ[6]; uniform float uC[6]; uniform vec4 uIsl[12];
     varying vec3 vWorld; varying float vH;
     // Hash ohne sin(): bleibt auch bei großen Koordinaten (weit gefahren) stabil
     float hash(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -215,6 +217,9 @@ const waterMat = new THREE.ShaderMaterial({
       // Flachwasser um die Inseln: türkis, zum Strand hin hell und sandig
       float dI = 99.;
       for (int i = 0; i < 12; i++) { vec4 is = uIsl[i]; if (is.z > 0.) dI = min(dI, length(xz - is.xy) - is.z); }
+      // Canyon: Felswände links und rechts (gleiche Formel wie canyonX im Spiel)
+      if (uCanyon > .5) { float sd = xz.x < 0. ? -1. : 1., K = 6.2831853 / 560.0;
+        dI = min(dI, 15. + 2.6 * sin(xz.y * K * 3. + sd * 1.7) + 1.3 * sin(xz.y * K * 11. + sd * .9) - abs(xz.x)); }
       float lagoon = 1. - smoothstep(0., 14., dI), sandy = 1. - smoothstep(0., 3.5, dI);
       water = mix(water, uLagoon * (.85 + h * .25), lagoon * .85);
       water = mix(water, uSand, sandy * .7);
@@ -364,6 +369,18 @@ function makeBoard() {
 // der Surfer: eigenes 3D-Modell (models/surfer.glb, gebaut von tools/build-surfer.mjs) mit Skelett
 const surfer = await loadSurfer('./models/surfer.glb', { gradientMap: toonRamp });
 const board = bakeOne(makeBoard());
+// Brett aus dem Shop: Deck-Bemalung (und bei Obsidian/Gold ein Leuchtbild) aufs Brett legen
+let boardMat = null; board.traverse(o => { if (o.material && o.material.map) boardMat = o.material; });
+const deckTexCache = new Map();
+function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; deckTexCache.set(c, t); } return t; }
+let boardInfo = Shop.getBoard(Shop.save.board);
+function applyBoard() {
+  boardInfo = Shop.getBoard(Shop.save.board); const { deck, glow } = Shop.deckCanvas(boardInfo);
+  boardMat.map = deckTex(deck); boardMat.emissiveMap = glow ? deckTex(glow) : null; boardMat.emissive.set(glow ? '#ffffff' : '#000000'); boardMat.emissiveIntensity = boardInfo.design === 'lava' ? 1.3 : 0.6; boardMat.needsUpdate = true;
+}
+applyBoard();
+// Farbe der Gischt am Brett (Regenbogenbrett: bunt)
+const sprayCol = () => boardInfo.trail === 'rainbow' ? Shop.RAINBOW[Math.floor(Math.random() * 6)] : boardInfo.trail === '#ffffff' ? (Math.random() < 0.3 ? '#c8f8ff' : '#ffffff') : (Math.random() < 0.5 ? boardInfo.trail : '#ffffff');
 const player = new THREE.Group(); // folgt Position + Wellenneigung
 player.add(board, surfer.root);
 scene.add(player);
@@ -399,7 +416,7 @@ const frondTex = (() => {
   const t = new THREE.CanvasTexture(c); return t;
 })();
 const M_FROND = [toon('#3f9a3a', { map: frondTex, alphaTest: 0.5, side: THREE.DoubleSide }), toon('#5cb848', { map: frondTex, alphaTest: 0.5, side: THREE.DoubleSide })];
-const M_TRUNK = [toon('#9a6b3d'), toon('#7a5230')], M_SAND = toon('#f3d9a0'), M_GRASS = toon('#4fa944'), M_ROCK = toon('#6f7a8a'), M_ROCKD = toon('#4d5766');
+const M_TRUNK = [toon('#9a6b3d'), toon('#7a5230')], M_SAND = toon('#f3d9a0'), M_GRASS = toon('#4fa944'), M_ROCK = toon('#6f7a8a'), M_RROCK = toon('#c25a34'), M_RCAP = toon('#eaa66a'), M_ROCKD = toon('#4d5766');
 function frondGeo(len, droop) {
   const seg = 8, g = new THREE.PlaneGeometry(0.9, len, 2, seg); g.translate(0, len / 2, 0);
   const p = g.attributes.position;
@@ -422,14 +439,14 @@ function makePalm(h, bend) {
   const nut = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), toon('#5a3a1a')); nut.position.copy(pos).add(new THREE.Vector3(0.1, -0.15, 0.1)); g.add(nut);
   return g;
 }
-function makeRockMesh(seed, sx, sy, sz, mossy) {
+function makeRockMesh(seed, sx, sy, sz, mossy, red = false) {
   const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position;
   const R = (a, b) => { const s = Math.sin(a * 12.9898 + b * 78.233 + seed * 37.7) * 43758.5453; return s - Math.floor(s); };
   const cache = new Map();
   for (let i = 0; i < p.count; i++) { const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`; let f = cache.get(k); if (f === undefined) { f = 0.75 + R(p.getX(i) * 3 + p.getZ(i), p.getY(i) * 5) * 0.5; cache.set(k, f); } p.setXYZ(i, p.getX(i) * f * sx, Math.max(-0.2, p.getY(i)) * f * sy, p.getZ(i) * f * sz); }
   g.computeVertexNormals();
-  const m = withOutline(new THREE.Mesh(g, mossy ? M_ROCK : M_ROCKD), 0.03);
-  if (mossy) { const moss = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6, 0, TAU, 0, 0.9), toon('#5aa04a')); moss.scale.set(sx * 0.7, sy * 0.35, sz * 0.7); moss.position.y = sy * 0.62; m.add(moss); }
+  const m = withOutline(new THREE.Mesh(g, red ? M_RROCK : mossy ? M_ROCK : M_ROCKD), 0.03);
+  if (mossy) { const moss = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6, 0, TAU, 0, 0.9), red ? M_RCAP : toon('#5aa04a')); moss.scale.set(sx * 0.7, sy * 0.35, sz * 0.7); moss.position.y = sy * 0.62; m.add(moss); }
   return m;
 }
 function makeIsland(seed) {
@@ -484,7 +501,7 @@ for (let i = 0; i < MOUNT_N; i++) {
   placeMountain(m, 60 - i * MOUNT_GAP - rand(40)); mountains.push(m); scene.add(m);
 }
 function updateMountains() {
-  for (const m of mountains) if (m.position.z > camera.position.z + m.userData.R + 60) placeMountain(m, m.position.z - MOUNT_N * MOUNT_GAP - rand(-20, 20));
+  for (const m of MAP === 'canyon' ? mesas : mountains) if (m.position.z > camera.position.z + m.userData.R + 60) placeMountain(m, m.position.z - MOUNT_N * MOUNT_GAP - rand(-20, 20));
 }
 
 // Bojenleinen am Rand des Spielbereichs
@@ -651,11 +668,33 @@ const RAMP = (() => {
   }
   return g;
 })();
-[LOG, ARCH, TURTLE, BOAT, SHARK, BUOY, JETTY, RAMP].forEach(g => bake(g));
-const OBS_MESH = { rock: () => pick(ROCKS).clone(), log: () => LOG.clone(), turtle: () => TURTLE.clone(), arch: () => ARCH.clone(), boat: () => BOAT.clone(), shark: () => SHARK.clone(), buoy: () => BUOY.clone(), jetty: () => JETTY.clone(), ramp: () => RAMP.clone() };
+// Canyon: Hängebrücke von Wand zu Wand, hängt in der Mitte tief durch – nur geduckt kommt man drunter durch
+const ROCKS_RED = [0, 1, 2, 3].map(s => bakeOne(makeRockMesh(200 + s, 1.3, 1.9, 1.15, true, true)));
+const bridgeY = x => 2.0 + Math.pow(x / 17, 2) * 10;
+const BRIDGE = (() => {
+  const g = new THREE.Group(), wood = toon('#a8743f'), woodD = toon('#7a5230'), rope = toon('#e2cc92');
+  for (let i = 0, x = -18; x <= 18; x += 0.44, i++) {
+    const y = bridgeY(x), sl = Math.atan((bridgeY(x + 0.01) - y) / 0.01);
+    const pl = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, 1.3), i % 3 === 1 ? woodD : wood), 0.015);
+    pl.position.set(x, y, rand(-0.05, 0.05)); pl.rotation.set(rand(-0.05, 0.05), rand(-0.06, 0.06), sl + rand(-0.06, 0.06)); g.add(pl);
+  }
+  const ropeAt = (dy, z) => { const pts = []; for (let x = -18; x <= 18.01; x += 1.5) pts.push(new THREE.Vector3(x, bridgeY(x) + dy - (dy > 0.3 ? 0.12 * Math.cos(x / 1.5 * Math.PI) ** 2 : 0), z)); return new THREE.CatmullRomCurve3(pts); };
+  for (const z of [-0.68, 0.68]) {
+    g.add(withOutline(new THREE.Mesh(new THREE.TubeGeometry(ropeAt(0.95, z), 60, 0.045, 6), rope), 0.012));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(ropeAt(-0.04, z), 60, 0.035, 5), rope));
+    for (let x = -16.5; x <= 16.6; x += 1.5) { const h = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.95, 4), rope); h.position.set(x, bridgeY(x) + 0.47, z); g.add(h); }
+  }
+  // bunte Wimpel unter der Brücke über den drei Spuren: hier heißt es ducken
+  const cols = ['#ff4d4d', '#ffcc33', '#2fa3ff', '#3cd070'];
+  for (let i = 0; i < 15; i++) { const x = -4.9 + i * 0.7, tri = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 3), toon(cols[i % 4])); tri.rotation.x = Math.PI; tri.scale.z = 0.25; tri.position.set(x, bridgeY(x) - 0.2, 0.62); g.add(tri); }
+  return g;
+})();
+[LOG, ARCH, TURTLE, BOAT, SHARK, BUOY, JETTY, RAMP, BRIDGE].forEach(g => bake(g));
+const OBS_MESH = { rock: () => pick(MAP === 'canyon' ? ROCKS_RED : ROCKS).clone(), log: () => LOG.clone(), turtle: () => TURTLE.clone(), arch: () => (MAP === 'canyon' ? BRIDGE : ARCH).clone(), boat: () => BOAT.clone(), shark: () => SHARK.clone(), buoy: () => BUOY.clone(), jetty: () => JETTY.clone(), ramp: () => RAMP.clone() };
 const FOAM_SIZE = { rock: [3.6, 3.2], log: [3.4, 1.6], turtle: [2.8, 3], boat: [3.2, 6], shark: [1.8, 1.4], buoy: [2.6, 2.6], jetty: [3.4, 1.4], ramp: [3.4, 5] };
 const easeOutBack = t => { const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
 function addObstacle(type, lane, z, opt = {}) {
+  if (MAP === 'canyon' && type === 'turtle') type = 'log'; // im Fluss: Treibholz statt Schildkröten
   const mesh = OBS_MESH[type](); let o_arm = null, o_flag = null;
   if (type === 'boat') { o_arm = mesh.getObjectByName('arm'); o_flag = mesh.getObjectByName('flag'); }
   if (type === 'turtle') mesh.userData.fl = mesh.children.filter(c => c.type === 'Group').map((piv, i) => ({ piv, sx: i % 2 ? 1 : -1, big: i < 2 }));
@@ -664,19 +703,233 @@ function addObstacle(type, lane, z, opt = {}) {
   const o = { type, lane, x: lane * LANE_W, z, mesh, ...OBS_TYPES[type], hit: false, ph: rand(TAU), born: time, arm: o_arm, flag: o_flag, ...opt };
   if (type === 'shark') { o.cx = o.x; o.x = o.cx; }
   mesh.position.set(o.x, -2, z); mesh.scale.setScalar(0.01); scene.add(mesh); obstacles.push(o);
-  if (type === 'arch') { o.foam = new THREE.Group(); for (const sd of [-1, 1]) { const f2 = new THREE.Mesh(foamGeo, foamMat); f2.scale.set(3.4, 1, 3); f2.position.set(sd * 5.4, 0.05, 0); f2.renderOrder = 1; mesh.add(f2); } }
+  if (type === 'arch') { o.foam = new THREE.Group(); if (MAP !== 'canyon') for (const sd of [-1, 1]) { const f2 = new THREE.Mesh(foamGeo, foamMat); f2.scale.set(3.4, 1, 3); f2.position.set(sd * 5.4, 0.05, 0); f2.renderOrder = 1; mesh.add(f2); } }
   else { o.foam = new THREE.Mesh(foamGeo, foamMat); const fs = FOAM_SIZE[type]; o.foam.scale.set(fs[0], 1, fs[1]); o.foam.userData.s = fs; o.foam.renderOrder = 1; }
   scene.add(o.foam);
   return o;
 }
 
-// Münzen (eine Instanz-Gruppe, glänzendes Gold)
-const COIN_N = 320;
-const coinGeo = (() => { const g = new THREE.CylinderGeometry(0.36, 0.36, 0.08, 28); g.rotateX(Math.PI / 2); return g; })();
-const coinMat = new THREE.MeshStandardMaterial({ color: '#ffd24a', metalness: 0.6, roughness: 0.4, emissive: '#c88400', emissiveIntensity: 0.4, envMapIntensity: 0.8, fog: true });
+/* =========================================================================
+   Karte „Canyon“: rote Felswände mit Gesteinsschichten, Wasserfälle, Tafelberge in der Ferne.
+   Die Wände wiederholen sich alle CAN_P Meter genau – Abschnitte springen nach vorn, ohne neu gebaut zu werden.
+   ========================================================================= */
+const CAN_SEG = 40, CAN_N = 14, CAN_P = CAN_SEG * CAN_N, CAN_K = TAU / CAN_P;
+const canyonX = (z, sd) => 15 + 2.6 * Math.sin(z * CAN_K * 3 + sd * 1.7) + 1.3 * Math.sin(z * CAN_K * 11 + sd * 0.9); // Abstand der Wand von der Flussmitte (auch im Wasser-Shader)
+const canyonH = (z, sd) => 28 + 6 * Math.sin(z * CAN_K * 2 + sd * 2.3) + 3 * Math.sin(z * CAN_K * 7 + sd);
+// Querschnitt der Wand: [nach außen, Höhe als Anteil] – Stufen und Simse wie im echten Canyon
+const CAN_PROF = [[-1.4, -0.09], [0, 0], [0.45, 0.11], [0.2, 0.23], [1.2, 0.25], [2.0, 0.265], [2.2, 0.44], [1.9, 0.54], [3.1, 0.56], [3.9, 0.575], [4.1, 0.79], [4.7, 0.965], [5.8, 1], [16, 1.02], [42, 1]];
+const STRATA = ['#a63e25', '#c4552e', '#d9733f', '#b8492b', '#e89a5c', '#cc6236', '#f2bd86', '#bf5230'].map(c => new THREE.Color(c));
+function canyonPoint(z, sd, row, inset = 0, out = _v1) {
+  const H = canyonH(z, sd), [dx, f] = CAN_PROF[row], y = f * H;
+  const rough = row > 0 && row < CAN_PROF.length - 2 ? 0.55 * Math.sin(z * CAN_K * 29 + y * 0.7 + sd) + 0.35 * Math.sin(z * CAN_K * 61 + y * 1.9 + sd * 2) + 0.25 * Math.sin(z * CAN_K * 97 - y * 2.7) : 0;
+  return out.set(sd * (canyonX(z, sd) + dx + rough * (row === 1 ? 0.4 : 1) - inset), y, z);
+}
+const M_CANYON = toon('#ffffff', { vertexColors: true });
+const M_SHRUB = [toon('#6f9a3e'), toon('#8aae4a')];
+function makeCanyonWall(z0, sd) {
+  const cols = 25, rows = CAN_PROF.length, pos = new Float32Array(cols * rows * 3), col = new Float32Array(cols * rows * 3), c = new THREE.Color(), idx = [];
+  for (let i = 0; i < cols; i++) {
+    const z = z0 - i / (cols - 1) * CAN_SEG;
+    for (let r = 0; r < rows; r++) {
+      const p = canyonPoint(z, sd, r), k = (i * rows + r) * 3, y = p.y;
+      pos[k] = p.x; pos[k + 1] = y; pos[k + 2] = z - z0;
+      const band = Math.floor((y + 1.3 * Math.sin(z * CAN_K * 5 + sd) + 0.6 * Math.sin(z * CAN_K * 17)) / 2.3);
+      c.copy(STRATA[((band % 8) + 8) % 8]);
+      if (y < 0.7) c.lerp(new THREE.Color('#5e2a1c'), 0.6);                         // nasser Fuß
+      if (r === 5 || r === 9 || r >= 12) c.lerp(new THREE.Color('#e8ae74'), 0.55);  // staubige Simse und Hochebene
+      col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+    }
+  }
+  for (let i = 0; i < cols - 1; i++) for (let r = 0; r < rows - 1; r++) { const a = i * rows + r, b = a + 1, d = a + rows, e = d + 1; if (sd > 0) idx.push(a, b, d, b, e, d); else idx.push(a, d, b, b, d, e); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(idx);
+  const fg = g.toNonIndexed(); fg.computeVertexNormals(); // kantige Felsflächen
+  const grp = new THREE.Group(); grp.add(new THREE.Mesh(fg, M_CANYON));
+  // Büsche auf den Simsen
+  for (let i = 0; i < 7; i++) { const z = z0 - rand(CAN_SEG), r = pick([5, 9, 12]), p = canyonPoint(z, sd, r, -0.6, new THREE.Vector3()), b = withOutline(new THREE.Mesh(new THREE.SphereGeometry(rand(0.45, 0.9), 8, 6).scale(1, 0.7, 1), pick(M_SHRUB)), 0.02); b.position.set(p.x, p.y + 0.2, p.z - z0); grp.add(b); }
+  return grp;
+}
+// Wasserfall: Streifen folgt der Wand von der Kante bis ins Wasser, Streifen laufen nach unten
+const fallMat = new THREE.ShaderMaterial({
+  uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]),
+  vertexShader: `varying vec2 vUv;
+    #include <fog_pars_vertex>
+    void main(){ vUv = uv; vec4 mvPosition = modelViewMatrix * vec4(position, 1.); gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+    }`,
+  fragmentShader: `uniform float uTime; varying vec2 vUv;
+    #include <fog_pars_fragment>
+    float h(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+    float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+    void main(){
+      float edge = smoothstep(0., .2, vUv.x) * smoothstep(1., .8, vUv.x);
+      float s = n(vec2(vUv.x * 7., vUv.y * .5 + uTime * 2.4)) * .6 + n(vec2(vUv.x * 19., vUv.y * 1.3 + uTime * 3.3)) * .4;
+      vec3 c = mix(vec3(.5, .86, .88), vec3(1.), smoothstep(.35, .72, s));
+      float foot = smoothstep(2.5, 0., vUv.y);
+      c = mix(c, vec3(1.), foot);
+      gl_FragColor = vec4(c, edge * (.62 + .38 * s) * (.85 + foot * .15));
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+      #include <fog_fragment>
+    }`,
+  transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide,
+});
+function makeFall(z0, zc, sd) {
+  const W = 3.4, cols = 5, rows = CAN_PROF.length - 2, pos = [], uv = [], idx = [], p = new THREE.Vector3();
+  for (let i = 0; i < cols; i++) {
+    const z = zc + (i / (cols - 1) - 0.5) * W; let len = 0, prev = null;
+    for (let r = rows - 1; r >= 1; r--) { canyonPoint(z, sd, r, 1.5, p); if (prev) len += p.distanceTo(prev); prev = (prev || new THREE.Vector3()).copy(p); pos.push(p.x, p.y, p.z - z0); uv.push(i / (cols - 1), len); }
+  }
+  // v soll unten 0 sein: umdrehen
+  const R = rows - 1; for (let i = 0; i < cols; i++) { const tot = uv[(i * R + R - 1) * 2 + 1]; for (let r = 0; r < R; r++) uv[(i * R + r) * 2 + 1] = tot - uv[(i * R + r) * 2 + 1]; }
+  for (let i = 0; i < cols - 1; i++) for (let r = 0; r < R - 1; r++) { const a = i * R + r, b = a + 1, d = a + R, e = d + 1; idx.push(a, b, d, b, e, d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+  const m = new THREE.Mesh(g, fallMat); m.renderOrder = 1; m.frustumCulled = false;
+  return m;
+}
+const canyon = new THREE.Group(); canyon.visible = false; scene.add(canyon);
+const canyonSegs = [], canyonFalls = [];
+const FALLS = { 1: -1, 3: 1, 5: -1, 6: 1, 8: -1, 10: 1, 12: -1, 13: 1 };
+for (let i = 0; i < CAN_N; i++) {
+  const z0 = 40 - i * CAN_SEG, seg = new THREE.Group(); seg.userData.z0 = z0;
+  for (const sd of [-1, 1]) seg.add(bake(makeCanyonWall(z0, sd)));
+  if (FALLS[i]) {
+    const sd = FALLS[i], zc = z0 - CAN_SEG * rand(0.3, 0.7);
+    seg.add(makeFall(z0, zc, sd));
+    const foam = new THREE.Mesh(foamGeo, foamMat); foam.scale.set(5, 1, 4.5); foam.position.set(sd * (canyonX(zc, sd) - 1.2), 0.08, zc - z0); foam.renderOrder = 1; seg.add(foam);
+    canyonFalls.push({ seg, sd, x: sd * (canyonX(zc, sd) - 1.3), dz: zc - z0, foam });
+  }
+  canyonSegs.push(seg); canyon.add(seg);
+}
+// Abschnitte so legen, dass sie von knapp hinter der Kamera bis CAN_P voraus reichen
+function placeCanyon(force) {
+  const base = camera.position.z + 25;
+  for (const s of canyonSegs) if (force || s.position.z - CAN_SEG > base) s.position.z = s.userData.z0 - CAN_P * Math.ceil((s.userData.z0 - base) / CAN_P);
+}
+// Tafelberge: flache Kuppen mit Gesteinsschichten, ragen in der Ferne über die Wände
+function makeMesa(R, H, seed) {
+  const g = new THREE.CylinderGeometry(R * 0.8, R * 1.15, H, 22, 8, false); g.translate(0, H / 2, 0);
+  const p = g.attributes.position, cols = new Float32Array(p.count * 3), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x), top = y > H - 0.01, rr = Math.hypot(x, z);
+    const f = top ? 1 : 0.85 + fbm2(Math.cos(a) * 2 + seed, Math.sin(a) * 2 + y * 0.03) * 0.35;
+    p.setXYZ(i, x * f, y, z * f);
+    c.copy(STRATA[(Math.floor(Math.max(0, y) / H * 7) + seed) % 8]); if (top && rr > 0) c.lerp(new THREE.Color('#d9965c'), 0.4);
+    cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3)); g.computeVertexNormals();
+  return new THREE.Mesh(g, M_MOUNTAIN);
+}
+const mesas = [];
+for (let i = 0; i < 10; i++) {
+  const R = rand(30, 60), m = makeMesa(R, rand(55, 110), i * 3); m.userData.R = R; m.userData.side = i % 2 ? -1 : 1; m.visible = false;
+  placeMountain(m, 60 - i * MOUNT_GAP - rand(40)); m.position.x = m.userData.side * (R + rand(70, 170)); mesas.push(m); scene.add(m);
+}
+function updateCanyon(dt) {
+  if (MAP !== 'canyon') return;
+  placeCanyon(false); fallMat.uniforms.uTime.value = time;
+  for (const f of canyonFalls) {
+    const z = f.seg.position.z + f.dz; f.foam.rotation.y = time * 0.4;
+    // Gischt am Fuß des Wasserfalls, nur in der Nähe
+    if (z < P.z + 10 && z > P.z - 70 && Math.random() < 0.7) addPart(f.x + rand(-1, 1), 0.3, z + rand(-1.5, 1.5), -f.sd * rand(0.5, 2), rand(1.5, 4), rand(-1, 1), rand(0.6, 1.1), rand(0.25, 0.5), '#f4fdff', 2);
+  }
+}
+
+// Münzen: geprägter Goldtaler mit erhabenem Rand und Stern, Cartoon-Kontur und wanderndem Glanzstreif (eine Instanz-Gruppe)
+const COIN_N = 320, COIN_R = 0.4, COIN_POP = 0.24;
+const coinTex = (() => {
+  const S = 256, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const disc = (r, fill) => { x.fillStyle = fill; x.beginPath(); x.arc(m, m, r, 0, TAU); x.fill(); };
+  const rg = (r0, r1, a, b, ox, oy) => { const g = x.createRadialGradient(m + ox, m + oy, r0, m, m, r1); g.addColorStop(0, a); g.addColorStop(1, b); return g; };
+  x.fillStyle = '#b86f00'; x.fillRect(0, 0, S, S);                       // Kante (der schmale Außenring landet auf der Münzkante)
+  disc(m * 0.97, rg(m * 0.5, m * 0.97, '#fff0a0', '#f2a81a', -26, -26));  // erhabener Rand
+  disc(m * 0.79, '#c98500');                                              // Fuge zwischen Rand und Feld
+  disc(m * 0.74, rg(6, m * 0.74, '#ffe778', '#f5b321', -22, -26));         // Feld
+  const star = (ox, oy, r, fill) => { x.fillStyle = fill; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.46 : r; x.lineTo(m + ox + Math.cos(a) * rr, m + oy + Math.sin(a) * rr); } x.closePath(); x.fill(); };
+  star(5, 6, m * 0.5, '#b97500'); star(-3, -3, m * 0.5, '#fff8d0'); star(0, 0, m * 0.47, '#ffc928'); // geprägt: Schatten, Licht, Fläche
+  x.fillStyle = 'rgba(255,255,255,.8)'; x.beginPath(); x.ellipse(m * 0.52, m * 0.46, m * 0.13, m * 0.055, -0.75, 0, TAU); x.fill();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+})();
+const coinGeo = (() => {
+  const R = COIN_R, T = 0.065, F = 0.04, V = (r, y) => new THREE.Vector2(r, y);
+  const g = new THREE.LatheGeometry([V(0, F), V(0.7 * R, F), V(0.79 * R, T), V(0.95 * R, T), V(R, T * 0.45), V(R, -T * 0.45), V(0.95 * R, -T), V(0.79 * R, -T), V(0.7 * R, -F), V(0, -F)].reverse(), 32);
+  g.rotateX(Math.PI / 2); // Bildseiten zeigen nach ±Z (zur Kamera), gedreht wird um die Hochachse
+  const p = g.attributes.position, uv = g.attributes.uv; for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / (2 * R) + 0.5, p.getY(i) / (2 * R) + 0.5);
+  return g;
+})();
+const coinTime = { value: 0 };
+const coinMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.3, roughness: 0.35, emissive: '#ffffff', emissiveMap: coinTex, emissiveIntensity: 0.42, envMapIntensity: 0.9, fog: true });
+coinMat.onBeforeCompile = sh => {
+  sh.uniforms.uTime = coinTime;
+  sh.vertexShader = 'varying float vPh;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n vPh = instanceMatrix[3].z * .093 + instanceMatrix[3].x * .21;\n#else\n vPh = 0.;\n#endif');
+  // schräger Glanzstreif läuft ab und zu über jede Münze (jede zu ihrer eigenen Zeit)
+  sh.fragmentShader = 'uniform float uTime; varying float vPh;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\n { float s = vMapUv.x + vMapUv.y - (fract(uTime * .55 + vPh) * 5. - 1.5); totalEmissiveRadiance += vec3(1., .94, .72) * (1. - smoothstep(0., .12, abs(s))) * .75; }');
+};
 const coinMesh = new THREE.InstancedMesh(coinGeo, coinMat, COIN_N); coinMesh.frustumCulled = false; scene.add(coinMesh);
+// dunkelbraune Kontur wie bei allen Cartoon-Teilen: dieselben Instanzen, Rückseite etwas aufgeblasen
+const coinOutline = new THREE.InstancedMesh(coinGeo, new THREE.ShaderMaterial({
+  uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uCol: { value: new THREE.Color('#4a2a00') } }]),
+  vertexShader: `#include <fog_pars_vertex>
+    void main(){ vec4 p = vec4(position + normal * .03, 1.);
+    #ifdef USE_INSTANCING
+    p = instanceMatrix * p;
+    #endif
+    vec4 mvPosition = modelViewMatrix * p; gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
+    }`,
+  fragmentShader: OUTLINE.fragmentShader, side: THREE.BackSide, fog: true,
+}), COIN_N);
+coinOutline.instanceMatrix = coinMesh.instanceMatrix; coinOutline.frustumCulled = false; scene.add(coinOutline);
+// Lichtblitz beim Einsammeln: weicher Schein mit Strahlen (einige Sprites, werden reihum vergeben)
+const flashTex = (() => {
+  const S = 128, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const g = x.createRadialGradient(m, m, 0, m, m, m); g.addColorStop(0, 'rgba(255,255,235,1)'); g.addColorStop(0.18, 'rgba(255,236,150,.85)'); g.addColorStop(0.45, 'rgba(255,200,60,.25)'); g.addColorStop(1, 'rgba(255,190,40,0)');
+  x.fillStyle = g; x.fillRect(0, 0, S, S);
+  x.translate(m, m); x.fillStyle = 'rgba(255,248,200,.9)';
+  for (let i = 0; i < 8; i++) { const l = i % 2 ? m * 0.55 : m * 0.95, w = i % 2 ? 3 : 5; x.rotate(TAU / 8); x.beginPath(); x.moveTo(0, -w); x.lineTo(l, 0); x.lineTo(0, w); x.closePath(); x.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const coinFlashes = Array.from({ length: 8 }, () => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); s.visible = false; s.renderOrder = 4; scene.add(s); return s; });
 const coins = [];
 function addCoin(x, y, z) { if (coins.length >= COIN_N) return; coins.push({ x, y, z, taken: false, t: 0, born: time }); }
+// eingesammelt: Münze hüpft über den Kopf, blitzt auf und fliegt dann als Symbol in den Zähler oben rechts
+function takeCoin(c) {
+  c.taken = true; c.t = 0; c.ox = c.x - P.x; c.oy = c.y - P.y; c.oz = c.z - P.z; c.a0 = time * 3 + c.z * 0.3;
+  runCoins++; coinStreak = time - lastCoinT < 0.6 ? coinStreak + 1 : 0; lastCoinT = time; Sound.fx.coin(coinStreak);
+  // Funken fliegen mit dem Surfer mit (sonst rast die Kamera durch sie hindurch)
+  for (let i = 0; i < 12; i++) { const a = rand(TAU), v = rand(2, 4.5); addPart(c.x, c.y, c.z, Math.cos(a) * v, Math.sin(a) * v + 1.5, rand(-0.5, 0.5) - P.speed, rand(0.3, 0.5), rand(0.06, 0.12), pick(['#fff6b0', '#ffd23f', '#ffffff', '#ffb820']), 3); }
+}
+function coinPopPos(c, out) {
+  const e = 1 - Math.pow(1 - Math.min(1, c.t / COIN_POP), 3);
+  return out.set(P.x + c.ox * (1 - e * 0.7), P.y + lerp(c.oy, 2.5, e), P.z + lerp(c.oz, -0.6, e));
+}
+// fliegende Münzen im HUD
+const flyers = [], flyPool = [];
+let shownCoins = 0, coinTarget = null;
+function coinFly(wp) {
+  if (state !== 'play') { shownCoins = runCoins; $('coins').textContent = shownCoins; return; }
+  if (!coinTarget) { const r = document.querySelector('#hud .coin').getBoundingClientRect(); coinTarget = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+  _v1.copy(wp).project(camera);
+  const el = flyPool.pop() || document.body.appendChild(Object.assign(document.createElement('div'), { className: 'coinfly' }));
+  el.hidden = false; flyers.push({ el, t: 0, x0: (_v1.x + 1) / 2 * innerWidth, y0: (1 - _v1.y) / 2 * innerHeight });
+  updateFlyers(0);
+}
+function updateFlyers(dt) {
+  for (let i = flyers.length - 1; i >= 0; i--) {
+    const f = flyers[i]; f.t += dt / 0.45;
+    if (f.t >= 1) {
+      f.el.hidden = true; flyPool.push(f.el); flyers.splice(i, 1);
+      shownCoins = Math.min(runCoins, shownCoins + 1); $('coins').textContent = shownCoins;
+      $('coinPill').animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)', offset: 0.3 }, { transform: 'scale(1)' }], { duration: 230, easing: 'ease-out' });
+      continue;
+    }
+    // Bogen: erst etwas hoch, dann beschleunigt in den Zähler
+    const e = f.t * f.t * (3 - 2 * f.t) * 0.35 + f.t * f.t * 0.65, cx = lerp(f.x0, coinTarget.x, 0.25), cy = Math.min(f.y0, coinTarget.y) - 70;
+    const u = 1 - e, x = u * u * f.x0 + 2 * u * e * cx + e * e * coinTarget.x, y = u * u * f.y0 + 2 * u * e * cy + e * e * coinTarget.y;
+    f.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) scale(${lerp(1.7, 1, e).toFixed(3)}) rotateY(${(f.t * 540).toFixed(0)}deg)`;
+  }
+}
+function clearFlyers() { for (const f of flyers) { f.el.hidden = true; flyPool.push(f.el); } flyers.length = 0; shownCoins = 0; coinTarget = null; }
 
 /* =========================================================================
    Power-ups: Magnet, Schild, Drachen – schwebende Blasen mit Symbol
@@ -769,7 +1022,7 @@ function popShield(o) {
 function smashObstacle(o) {
   o.hit = true; scene.remove(o.mesh, o.foam);
   for (let i = 0; i < 30; i++) addPart(o.x + rand(-1, 1), rand(0, 1.5), o.z, rand(-4, 4), rand(2, 6), rand(-2, 3), rand(0.5, 0.9), rand(0.1, 0.2), '#ffffff');
-  if (o.type !== 'turtle') for (let i = 0; i < 12; i++) addPart(o.x + rand(-0.8, 0.8), rand(0.3, 1.5), o.z, rand(-4, 4), rand(3, 7), rand(-2, 3), rand(0.8, 1.2), rand(0.12, 0.24), o.type === 'log' ? '#8a5a32' : '#6f7a8a');
+  if (o.type !== 'turtle') for (let i = 0; i < 12; i++) addPart(o.x + rand(-0.8, 0.8), rand(0.3, 1.5), o.z, rand(-4, 4), rand(3, 7), rand(-2, 3), rand(0.8, 1.2), rand(0.12, 0.24), o.type === 'log' ? '#8a5a32' : MAP === 'canyon' ? '#c25a34' : '#6f7a8a');
 }
 function updatePowers(dt) {
   const play = state === 'play';
@@ -840,6 +1093,7 @@ function dolphinSound(d) { const dist = Math.hypot(d.x - P.x, d.z - P.z); if (di
 function updateDolphins(dt) {
   const sp = state === 'crash' ? 4 : P.speed * 0.93;
   for (const d of dolphins) {
+    d.m.visible = MAP !== 'canyon'; if (!d.m.visible) continue;
     d.z -= sp * dt;
     if (d.z > P.z + 12 || d.z < P.z - 140) { respawnDolphin(d); continue; }
     const wy = waveH(d.x, d.z, 3);
@@ -1031,7 +1285,7 @@ function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setPixelRatio(pixelRatio); renderer.setSize(w, h, false);
   if (composer) { composer.setPixelRatio(pixelRatio); composer.setSize(w, h); }
-  camera.aspect = w / h; camera.updateProjectionMatrix();
+  camera.aspect = w / h; camera.updateProjectionMatrix(); coinTarget = null;
   partMat.uniforms.uScale.value = h * pixelRatio * 1.1;
 }
 let resizePending = false;
@@ -1045,11 +1299,17 @@ const THEMES = {
     hemi: ['#cfeeff', '#1a6f8c', 1.15], sun: ['#fff1d6', 2.4], fill: ['#9fd8ff', 0.9], spec: 1, bloom: 0.28, ground: '#0d5f86', fogFar: 600 },
   abend: { name: 'Abend', zenith: '#2b3a8f', horizon: '#ffb27a', el: 12, az: 156, sunCol: '#ffcf86', cloud: '#ffb4a0', glow: 0.75, deep: '#173b6c', shallow: '#2b7494', sss: '#ff9a62', lagoon: '#47aba8', sand: '#f3c6a0',
     hemi: ['#ffc39a', '#283a6a', 1.05], sun: ['#ffae6a', 2.1], fill: ['#ff9fc4', 1.0], spec: 0.55, bloom: 0.42, ground: '#3a3f6e', fogFar: 520 },
+  canyon: { name: 'Canyon', map: 'canyon', zenith: '#4a78c8', horizon: '#ffd7a6', el: 40, az: 35, sunCol: '#ffe4b4', cloud: '#fff3e2', glow: 0.25, deep: '#0d5650', shallow: '#2aae9a', sss: '#86f2d2', lagoon: '#47cdb4', sand: '#d9b48a',
+    hemi: ['#ffe2c4', '#8a4a2a', 1.1], sun: ['#ffe2b6', 2.4], fill: ['#ffc4a0', 0.85], spec: 0.8, bloom: 0.3, ground: '#7a3a20', fogFar: 470 },
 };
 const THEME_KEY = 'surfersSurf3d.world';
-let themeId = 'mittag'; try { const t = localStorage.getItem(THEME_KEY); if (THEMES[t]) themeId = t; } catch (e) {}
+let themeId = 'mittag'; try { const t = localStorage.getItem(THEME_KEY); if (THEMES[t] && Shop.themeUnlocked(t)) themeId = t; } catch (e) {}
 function applyTheme(id) {
-  const T = THEMES[id] || THEMES.mittag; themeId = id;
+  const T = THEMES[id] || THEMES.mittag; themeId = THEMES[id] ? id : 'mittag';
+  // Karte wechseln: Inseln, Berge, Delfine und Segelboote gegen Canyon-Wände und Tafelberge tauschen
+  MAP = T.map || 'insel'; const can = MAP === 'canyon';
+  canyon.visible = can; if (can) placeCanyon(true); waterMat.uniforms.uCanyon.value = can ? 1 : 0;
+  for (const o of islands) o.visible = !can; for (const m of mountains) m.visible = !can; for (const m of mesas) m.visible = can; for (const b of boats) b.visible = !can;
   ZENITH.set(T.zenith); HORIZON.set(T.horizon);
   SUN_DIR.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - T.el), THREE.MathUtils.degToRad(T.az));
   const su2 = skyMat.uniforms; su2.uSunCol.value.set(T.sunCol); su2.uCloud.value.set(T.cloud); su2.uGlow.value = T.glow;
@@ -1061,8 +1321,12 @@ function applyTheme(id) {
   bloomStrength = T.bloom; if (bloom) bloom.strength = T.bloom; envGround.color.set(T.ground);
   document.body.style.background = T.horizon;
   buildEnv();
-  try { localStorage.setItem(THEME_KEY, id); } catch (e) {}
-  document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('on', b.dataset.w === id));
+  try { localStorage.setItem(THEME_KEY, themeId); } catch (e) {}
+  syncWorldBtns();
+}
+function syncWorldBtns() {
+  document.querySelectorAll('.wbtn').forEach(b => { const lock = !Shop.themeUnlocked(b.dataset.w); b.classList.toggle('on', b.dataset.w === themeId); b.classList.toggle('lock', lock);
+    b.querySelector('.pr').textContent = lock ? `🔒 ${Shop.worldOf(b.dataset.w).price}` : ''; });
 }
 
 /* =========================================================================
@@ -1078,13 +1342,17 @@ function reset() {
   for (const o of obstacles) scene.remove(o.mesh, o.foam); obstacles.length = 0; coins.length = 0;
   for (const u of pickups) scene.remove(u.g); pickups.length = 0; pw.magnet = pw.shield = pw.kite = pw.grace = 0;
   Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, duck: 0, duckBuf: false, jumpBuf: 0, bump: 0 });
-  kiteEndZ = null; runCoins = 0; startZ = P.z; nextRowZ = P.z - 45; recordShown = false; $('coins').textContent = '0';
+  kiteEndZ = null; runCoins = 0; runBanked = false; clearFlyers(); startZ = P.z; nextRowZ = P.z - 45; recordShown = false; $('coins').textContent = '0';
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
 }
+// eingesammelte Münzen aufs Konto (geteilt mit der 2D-Version)
+let runBanked = false;
+function bankCoins() { if (runBanked) return; runBanked = true; Shop.addCoins(runCoins); showBank(); }
+function showBank() { $('bank').textContent = Shop.save.coins.toLocaleString('de-DE'); }
 function pause() { if (state !== 'play') return; state = 'pause'; $('pause').hidden = false; }
 function resume() { if (state !== 'pause') return; state = 'play'; $('pause').hidden = true; last = performance.now(); canvas.focus(); }
 function showBest() { $('best').textContent = best > 0 ? `Rekord: ${best} m` : ''; }
-function start() { const first = state === 'ready'; reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
+function start() { const first = state === 'ready'; for (const k in PW) PW[k].dur = Shop.powerDur(k); reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
 const LANE_T = 0.15;           // Spurwechsel: kurz und knackig
 const JUMP_V = 11, RAMP_V = 13.5, GRAV = 30;
 // Schwerkraft mit kurzem Schweben am höchsten Punkt: Sprünge lesen sich klarer
@@ -1128,12 +1396,12 @@ const PATTERNS = [
   [(d, lv) => 3 - lv, (z, f, o) => { let n = 0; for (const l of o) if (Math.random() < 0.75 || (n === 0 && l === o[1])) { addObstacle('rock', l, z); n++; } coinLine(f, z); }],
   [() => 1.6, (z, f, o) => { addObstacle('rock', pick(o), z); coinLine(f, z); }],
   [() => 2, (z, f, o) => { const l = pick([-1, 0, 1]); addObstacle('log', l, z); coinHop(l, z); }],
-  [d => d > 40 ? 1.3 : 0, (z) => { const l = pick([-1, 0, 1]); addObstacle('turtle', l, z); coinHop(l, z); }],
-  [d => d > 120 ? 1.1 : 0, (z, f) => { addObstacle('arch', 0, z); for (let i = 0; i < 5; i++) addCoin(f * LANE_W, 0.55, z + 4 - i * 2); }],
+  [d => d > 40 && MAP !== 'canyon' ? 1.3 : 0, (z) => { const l = pick([-1, 0, 1]); addObstacle('turtle', l, z); coinHop(l, z); }],
+  [d => d > 120 ? (MAP === 'canyon' ? 1.7 : 1.1) : 0, (z, f) => { addObstacle('arch', 0, z); for (let i = 0; i < 5; i++) addCoin(f * LANE_W, 0.55, z + 4 - i * 2); }],
   // Motorboot kommt entgegen, später mit Fels daneben
   [(d, lv) => d > 180 ? 1 + lv : 0, (z, f, o, lv) => { const l = pick(o); addObstacle('boat', l, z - 6); if (lv > 0.3 && Math.random() < 0.6) addObstacle('rock', o.find(k => k !== l), z - 6); coinLine(f, z - 6, 7); return 10; }],
   // Hai pendelt zwischen zwei Spuren, Münzen in der dritten
-  [d => d > 100 ? 1.2 : 0, (z) => { const pair = pick([[-1, 0], [0, 1]]), rest = [-1, 0, 1].find(k => !pair.includes(k)); addObstacle('shark', (pair[0] + pair[1]) / 2, z); coinLine(rest, z); }],
+  [d => d > 100 && MAP !== 'canyon' ? 1.2 : 0, (z) => { const pair = pick([[-1, 0], [0, 1]]), rest = [-1, 0, 1].find(k => !pair.includes(k)); addObstacle('shark', (pair[0] + pair[1]) / 2, z); coinLine(rest, z); }],
   // Bojen in zwei Spuren, in der dritten manchmal Treibholz
   [() => 1.4, (z, f, o, lv) => { for (const l of o) addObstacle('buoy', l, z + rand(-1, 1)); if (lv > 0.25 && Math.random() < 0.5) { addObstacle('log', f, z); coinHop(f, z); } else coinLine(f, z); }],
   // Steg: drunter ducken; später ist der Ausweg zu
@@ -1166,9 +1434,7 @@ function collide() {
     if (pw.shield > 0) { popShield(o); return; }
     o.hit = true; crash(o); return;
   }
-  for (const c of coins) { if (c.taken) continue; if (Math.abs(c.z - P.z) < 0.9 && Math.abs(c.x - P.x) < 1.0 && Math.abs(c.y - (P.y + 0.9)) < 1.3) { c.taken = true; runCoins++; $('coins').textContent = runCoins; coinStreak = time - lastCoinT < 0.6 ? coinStreak + 1 : 0; lastCoinT = time; Sound.fx.coin(coinStreak);
-    // Funken fliegen mit dem Surfer mit (sonst rast die Kamera durch sie hindurch)
-    for (let i = 0; i < 8; i++) addPart(c.x, c.y, c.z, rand(-2, 2), rand(0, 3), rand(-2, 2) - P.speed, rand(0.25, 0.45), rand(0.08, 0.14), pick(['#fff4a0', '#ffd23f']), 4); } }
+  for (const c of coins) if (!c.taken && Math.abs(c.z - P.z) < 0.9 && Math.abs(c.x - P.x) < 1.0 && Math.abs(c.y - (P.y + 0.9)) < 1.3) takeCoin(c);
 }
 let lastCrash = null;
 function crash(o) {
@@ -1176,7 +1442,7 @@ function crash(o) {
   CR.body.set(0, 0, 0); if (o.type === 'rock') CR.vel.set((Math.random() < 0.5 ? -1 : 1) * rand(1.5, 2.5), 5.5, 3.5); else CR.vel.set(rand(-1, 1), 5.5, -P.speed * 0.25); CR.rot = 0; CR.wet = false;
   CR.board.set(0, 0, 0); CR.bvel.set(rand(-2, 2), 7.5, -P.speed * 0.2); CR.brot.set(rand(-6, 6), rand(-4, 4), rand(8, 12));
   for (let i = 0; i < 60; i++) addPart(P.x + rand(-0.8, 0.8), P.y + rand(0, 1.2), P.z + rand(-0.6, 0.4), rand(-4, 4), rand(2, 7), rand(-6, 1), rand(0.6, 1.1), rand(0.1, 0.24), '#ffffff');
-  if (o.type === 'rock') for (let i = 0; i < 14; i++) addPart(o.x + rand(-0.6, 0.6), rand(0.5, 2), o.z + 0.5, rand(-3, 3), rand(2, 5), rand(0, 3), 1, rand(0.12, 0.22), '#6f7a8a');
+  if (o.type === 'rock') for (let i = 0; i < 14; i++) addPart(o.x + rand(-0.6, 0.6), rand(0.5, 2), o.z + 0.5, rand(-3, 3), rand(2, 5), rand(0, 3), 1, rand(0.12, 0.22), MAP === 'canyon' ? '#c25a34' : '#6f7a8a');
 }
 function update(dt) {
   time += dt;
@@ -1202,7 +1468,7 @@ function update(dt) {
     // Gischt an den Kanten des Bretts
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
-      for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), Math.random() < 0.3 ? '#c8f8ff' : '#ffffff'); }
+      for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), sprayCol()); }
       if (Math.random() < 0.6) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.4, P.y + 0.15, P.z + rand(0.3, 1), sd * rand(0.5, 1.5), rand(0.5, 1.2), rand(-P.speed * 0.2, 0), rand(0.5, 0.9), rand(0.25, 0.45), '#eafcff', 2); }
     }
     if (play) {
@@ -1220,7 +1486,8 @@ function update(dt) {
       const dist = Math.floor(startZ - P.z), rec = dist > best;
       if (rec) { best = dist; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
       $('overText').textContent = rec && dist > 20 ? 'Neuer Rekord!' : pick(['Platsch!', 'Wipeout!', 'Autsch!']);
-      $('overStats').textContent = `${dist} m · ${runCoins} Münzen · Rekord ${best} m`;
+      bankCoins();
+      $('overStats').innerHTML = `${dist} m · Rekord ${best} m<br><b class="gain">+${runCoins} Münzen</b> · Konto <b>${Shop.save.coins.toLocaleString('de-DE')}</b>`;
       $('over').hidden = false; $('hud').hidden = true; showBest();
     }
   }
@@ -1238,15 +1505,18 @@ function update(dt) {
     const ty = o.type, baseY = ty === 'log' ? h + 0.12 : ty === 'turtle' ? h - 0.05 : ty === 'arch' ? 0 : ty === 'boat' ? h * 0.8 : ty === 'shark' ? h : ty === 'buoy' ? h * 0.9 - 0.15 : ty === 'jetty' ? h * 0.5 : ty === 'ramp' ? h * 0.7 : h * 0.4 - 0.25;
     o.mesh.position.set(o.x, baseY - (1 - e) * 1.5, o.z);
     if (o.type === 'shark') o.mesh.scale.set(Math.sign(o.mesh.scale.x) * grow, grow, grow); else o.mesh.scale.setScalar(grow);
+    if (o.type === 'arch' && MAP === 'canyon') { o.mesh.rotation.x = Math.sin(time * 1.4 + o.ph) * 0.035; o.mesh.position.y += Math.sin(time * 2.1 + o.ph) * 0.05; }
     if (o.type === 'turtle') { for (const f of o.mesh.userData.fl) f.piv.rotation.z = Math.sin(time * 3 + o.ph + (f.big ? 0 : 1.5)) * (f.big ? 0.5 : 0.3) * f.sx; o.mesh.rotation.y = Math.sin(time * 0.7 + o.ph) * 0.25; o.z -= dt * 0.8; }
     if (o.type === 'log' || o.type === 'buoy' || o.type === 'boat' || o.type === 'ramp') { waveN(o.x, o.z); const k = o.type === 'buoy' ? 1.6 : o.type === 'log' ? 0.8 : 0.4; o.mesh.rotation.z = _n.x * -k; o.mesh.rotation.x = _n.z * k + (o.type === 'buoy' ? Math.sin(time * 1.7 + o.ph) * 0.06 : 0); }
     if (!o.foam.isGroup) { const fs = o.foam.userData.s; o.foam.scale.set(fs[0] * e, 1, fs[1] * e); }
     o.foam.position.set(o.x, h + 0.05, o.z); o.foam.rotation.y = o.type === 'boat' || o.type === 'ramp' || o.type === 'jetty' ? 0 : time * 0.3 + o.ph; }
   lampMat.emissiveIntensity = Math.sin(time * 4) > 0.3 ? 2.2 : 0.4;
-  for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i]; if (c.z > P.z + (c.taken ? 12 : 2)) coins.splice(i, 1); else if (c.taken) c.t += dt; } // verpasste Münzen nicht an der Kamera vorbeiblitzen lassen
+  for (let i = coins.length - 1; i >= 0; i--) { const c = coins[i];
+    if (c.taken) { c.t += dt; if (c.t >= COIN_POP) { coinFly(coinPopPos(c, _v3)); coins.splice(i, 1); } }
+    else if (c.z > P.z + 2) coins.splice(i, 1); } // verpasste Münzen nicht an der Kamera vorbeiblitzen lassen
   for (const isl of islands) if (isl.position.z > P.z + 40) { isl.position.z -= islands.length * 38; isl.position.x = isl.userData.side * rand(16, 30); isl.rotation.y = rand(TAU); }
-  islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, isl.userData.r * 0.97, 0));
-  updatePowers(dt); updatePopups(dt); updateDolphins(dt); updateGulls(dt); updateBoats(); updateMountains();
+  islands.forEach((isl, i) => waterMat.uniforms.uIsl.value[i].set(isl.position.x, isl.position.z, MAP === 'insel' ? isl.userData.r * 0.97 : -1, 0));
+  updatePowers(dt); updatePopups(dt); updateFlyers(dt); updateDolphins(dt); updateGulls(dt); updateBoats(); updateMountains(); updateCanyon(dt);
   updateParts(dt);
 }
 
@@ -1277,15 +1547,23 @@ function syncScene(dt) {
   kite.userData.lines.visible = kite.visible;
   blob.position.set(P.x, waveH(P.x, P.z, 3) + 0.05, P.z + 0.05);
   const hAir = Math.max(0, P.y - waveH(P.x, P.z, 3)); blob.material.opacity = state === 'crash' ? 0 : clamp(1 - hAir * 0.12, 0.45, 1); blob.scale.setScalar(clamp(1 - hAir * 0.08, 0.6, 1));
-  // Münzen
-  let n = 0;
+  // Münzen: drehen sich und wippen leicht; eingesammelte hüpfen hoch, wachsen kurz und verschwinden im Lichtblitz
+  let n = 0, nf = 0; coinTime.value = time;
   for (const c of coins) {
-    const k = c.taken ? smooth01(c.t / 0.25) : 0; if (k >= 1) continue;
-    const g = easeOutBack(smooth01((time - c.born) / 0.45));
-    _p.set(lerp(c.x, P.x, k), lerp(c.y, P.y + 1.4, k), lerp(c.z, P.z, k)); _q.setFromAxisAngle(UP, time * 3 + c.z * 0.3); _s.setScalar(Math.max(0.01, g * (1 - k * 0.6)));
+    if (c.taken) {
+      const k = Math.min(1, c.t / COIN_POP);
+      coinPopPos(c, _p); _q.setFromAxisAngle(UP, c.a0 + c.t * 28);
+      _s.setScalar(k < 0.35 ? lerp(1, 1.35, smooth01(k / 0.35)) : 1.35 * (1 - smooth01((k - 0.35) / 0.65)) + 0.01);
+      const f = coinFlashes[nf++ % coinFlashes.length]; f.visible = true; f.position.copy(_p); f.position.z += 0.05;
+      f.scale.setScalar(lerp(0.7, 2.4, 1 - Math.pow(1 - k, 2))); f.material.rotation = k * 1.2 + c.a0; f.material.opacity = Math.pow(1 - k, 1.4) * 0.9;
+    } else {
+      const g = easeOutBack(smooth01((time - c.born) / 0.45));
+      _p.set(c.x, c.y + Math.sin(time * 2.6 + c.z * 0.45) * 0.07, c.z); _q.setFromAxisAngle(UP, time * 3 + c.z * 0.3); _s.setScalar(Math.max(0.01, g));
+    }
     _m4.compose(_p, _q, _s); coinMesh.setMatrixAt(n++, _m4);
   }
-  coinMesh.count = n; coinMesh.instanceMatrix.needsUpdate = true; _s.set(1, 1, 1);
+  for (let i = nf; i < coinFlashes.length; i++) coinFlashes[i].visible = false;
+  coinMesh.count = coinOutline.count = n; coinMesh.instanceMatrix.needsUpdate = true; _s.set(1, 1, 1);
   updateBuoys(); updateWake();
   // Wasser und ferne Kulisse folgen der Kamera
   water.position.set(Math.round(P.x / 0.5) * 0.5, 0, Math.round(P.z / 0.5) * 0.5);
@@ -1355,6 +1633,7 @@ function frame(now) {
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.key.toLowerCase();
+  if (!$('shop').hidden) { if (k === 'escape') { Shop.closeShop(); e.preventDefault(); } return; }
   if ((k === 'escape' || k === 'p') && (state === 'play' || state === 'pause')) { state === 'play' ? pause() : resume(); e.preventDefault(); return; }
   if (state === 'pause') { if (k === ' ' || k === 'enter') { resume(); e.preventDefault(); } return; }
   if (state !== 'play' && (k === ' ' || k === 'enter') && (state === 'ready' || !$('over').hidden)) { start(); e.preventDefault(); return; }
@@ -1395,11 +1674,16 @@ const endTouch = (e, tap) => {
 canvas.addEventListener('pointerup', e => endTouch(e, true));
 canvas.addEventListener('pointercancel', e => endTouch(e, false));
 $('go').addEventListener('click', start);
-document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); applyTheme(b.dataset.w); }));
+document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); if (Shop.themeUnlocked(b.dataset.w)) applyTheme(b.dataset.w); else { Sound.init(); Shop.openShop('worlds'); } }));
+// Shop: Brett/Welt sofort am Surfer im Hintergrund zeigen
+Shop.initShop({ sound: Sound.fx, icons: ICON_URL, theme: () => themeId, selectTheme: id => applyTheme(id), onChange: () => { applyBoard(); showBank(); syncWorldBtns(); if (!Shop.themeUnlocked(themeId)) applyTheme('mittag'); } });
+$('shopBtn').addEventListener('click', e => { e.stopPropagation(); Sound.init(); Sound.fx.click(); Shop.openShop(); });
+$('overShop').addEventListener('click', e => { e.stopPropagation(); Sound.fx.click(); Shop.openShop(); });
+showBank();
 applyTheme(themeId);
 $('pauseBtn').addEventListener('click', e => { e.stopPropagation(); pause(); });
 $('resume').addEventListener('click', resume);
-$('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
+$('quit').addEventListener('click', () => { bankCoins(); $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 showBest();
 const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
@@ -1429,4 +1713,4 @@ resize();
 warmUp();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
+window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme, Shop, applyBoard };

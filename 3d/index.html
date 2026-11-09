@@ -26,11 +26,14 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') addEventList
 :root{--display:"Luckiest Guy","Arial Black",Impact,sans-serif;--ui:"Fredoka",system-ui,sans-serif;--ink:#0d2a4a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;overflow:hidden;background:#7fc8e8;font-family:var(--ui);color:#fff;user-select:none;-webkit-user-select:none}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
 .hud[hidden]{display:none}
 .hud{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
 .pill{background:rgba(13,42,74,.72);border:2px solid rgba(255,255,255,.18);border-radius:999px;padding:.32em .9em .26em;font:600 clamp(16px,2.4vmax,24px)/1 var(--ui);display:flex;gap:.45em;align-items:center;backdrop-filter:blur(4px)}
-.coin{width:1em;height:1em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,#ffcc33 45%,#c98a12);box-shadow:inset 0 0 0 2px #a8700c}
+.coin,.coinfly{width:1em;height:1em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,#ffcc33 45%,#c98a12);box-shadow:inset 0 0 0 2px #a8700c}
+#coinPill{transform-origin:85% 50%}
+.coinfly{position:fixed;left:0;top:0;margin:-.5em 0 0 -.5em;font-size:clamp(16px,2.4vmax,24px);box-shadow:inset 0 0 0 2px #a8700c,0 0 0 2px #4a2a00,0 0 12px 2px rgba(255,214,80,.75);pointer-events:none;will-change:transform;z-index:4}
+.coinfly[hidden]{display:none}
 .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;background:radial-gradient(ellipse at center,rgba(5,30,60,.15),rgba(5,30,60,.55))}
 .screen[hidden]{display:none}
 h1{margin:0;font:400 clamp(44px,9vmin,96px)/.95 var(--display);letter-spacing:.02em;color:#fffef6;text-shadow:0 5px 0 var(--ink),0 0 0 var(--ink),3px 3px 0 var(--ink),-3px 3px 0 var(--ink),3px -3px 0 var(--ink),-3px -3px 0 var(--ink)}
@@ -50,7 +53,7 @@ a.link{color:#bff4ff;font-weight:600}
 .pop{position:fixed;left:0;top:0;font:400 clamp(22px,3.6vmin,38px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 #0d2a4a,2px 2px 0 #0d2a4a,-2px 2px 0 #0d2a4a,2px -2px 0 #0d2a4a,-2px -2px 0 #0d2a4a;pointer-events:none;white-space:nowrap;will-change:transform}
 .hud{pointer-events:none}.pbtn{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:3px solid #0d2a4a;background:linear-gradient(#5fd0f2,#1b8fd6);display:flex;gap:6px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 0 #0d2a4a}
 .pbtn i{width:6px;height:18px;background:#fff;border-radius:2px;box-shadow:0 0 0 2px #0d2a4a}
-.worlds{display:flex;gap:10px}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
+.worlds{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
 .wbtn.on{background:#ffd23f;color:#0d2a4a;border-color:#0d2a4a;box-shadow:0 3px 0 #0d2a4a}
 .best{font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);color:#fff3b0}
 .mode-switch{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:rgba(10,22,38,.62);border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink)}
@@ -59,6 +62,49 @@ a.link{color:#bff4ff;font-weight:600}
 .mode-switch .on{background:linear-gradient(#5fd0f2,#1b8fd6);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
 .mode-switch small{font:600 .55em/1 var(--ui);letter-spacing:0;display:block;margin-top:.2em;opacity:.85;text-shadow:none}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
+
+.wbtn .pr:not(:empty){margin-left:.4em;font-size:.85em;opacity:.95}
+.wbtn.lock{background:rgba(13,42,74,.75);color:#ffe9a8;border-style:dashed}
+.menu-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center}
+.bankpill{color:#fff}
+.gain{color:#ffe066}
+/* Shop */
+.shop-screen{z-index:20;background:rgba(5,25,50,.55);backdrop-filter:blur(3px);padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.shop-panel{width:min(1000px,100%);height:100%;max-height:780px;display:flex;flex-direction:column;padding:14px 16px 16px;overflow:hidden;text-align:left;
+  background:linear-gradient(#fff7e6,#ffeccc);color:var(--ink);border:4px solid var(--ink);border-radius:24px;box-shadow:0 8px 0 var(--ink),0 20px 50px rgba(0,0,0,.35)}
+.shop-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.shop-head h2{margin:0;flex:1;text-align:center;font:400 clamp(30px,5vmin,46px)/1 var(--display);letter-spacing:.03em;color:#fff;text-shadow:0 4px 0 var(--ink),2px 2px 0 var(--ink),-2px 2px 0 var(--ink),2px -2px 0 var(--ink),-2px -2px 0 var(--ink)}
+.shop-head .pill{color:#fff}
+.tabs{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none}
+.tabs button{flex:1 0 auto;font:400 clamp(15px,2vmax,20px)/1 var(--display);letter-spacing:.04em;padding:.62em 1em .5em;border-radius:12px;cursor:pointer;
+  border:3px solid var(--ink);background:#fff;color:var(--ink);box-shadow:0 3px 0 var(--ink)}
+.tabs button[aria-selected="true"]{background:linear-gradient(#5fd0f2,#1b8fd6);color:#fff;text-shadow:0 2px 0 var(--ink)}
+.shop-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start;padding:4px 4px 10px;touch-action:pan-y;overscroll-behavior:contain}
+.card{background:#fff;border:3px solid var(--ink);border-radius:18px;padding:10px;display:flex;flex-direction:column;gap:7px;box-shadow:0 4px 0 var(--ink);position:relative;animation:cardIn .3s backwards}
+.card:nth-child(2){animation-delay:.03s}.card:nth-child(3){animation-delay:.06s}.card:nth-child(4){animation-delay:.09s}.card:nth-child(n+5){animation-delay:.12s}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.97)}}
+.card.equipped{background:#fff4d2}
+.card.wide{grid-column:span 2}
+.card .prev{width:100%;aspect-ratio:33/20;border-radius:12px;display:block;border:2px solid rgba(13,42,74,.25);object-fit:contain}
+.card.wide .prev{aspect-ratio:9/5}
+.card .prev.icon{background:radial-gradient(circle,#e7f8ff,#bfe9fa);padding:12px}
+.card h3{font:400 20px/1.05 var(--display);letter-spacing:.03em;margin:2px 0 0;color:var(--ink)}
+.card p{font:500 13px/1.3 var(--ui);color:#2c5680;margin:0;flex:1;text-shadow:none;max-width:none}
+.card .tag{position:absolute;top:14px;left:14px;font:400 12px/1 var(--display);letter-spacing:.06em;background:#3cb371;color:#fff;padding:.45em .6em .35em;border-radius:8px;border:2px solid var(--ink);text-shadow:0 1px 0 var(--ink)}
+.card .tag.lock{background:#e8573c}
+.sbtn{font:400 17px/1 var(--display);letter-spacing:.03em;color:#fff;border:3px solid var(--ink);border-radius:12px;padding:.55em .8em .42em;cursor:pointer;text-shadow:0 2px 0 var(--ink);box-shadow:0 4px 0 var(--ink);display:inline-flex;gap:.3em;align-items:center;justify-content:center;transition:transform .08s}
+.sbtn:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.sbtn:disabled{cursor:default}
+.sbtn .coin{width:1em;height:1em;flex:none}
+.sbtn.gold{background:linear-gradient(#ffd23f,#ff9f1a)}.sbtn.gold.poor{filter:saturate(.45) brightness(.92)}
+.sbtn.sea{background:linear-gradient(#5fd0f2,#1b8fd6)}.sbtn.leaf{background:linear-gradient(#7ee08a,#2fa35a)}
+.card .sbtn{width:100%}
+.pips{display:flex;gap:4px}.pips i{flex:1;height:9px;border-radius:5px;background:#dfe7ee;border:2px solid var(--ink)}.pips i.on{background:#ffd23f}
+.shake{animation:shake .35s}
+@keyframes shake{20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translateX(-50%);z-index:60;font:600 16px/1.2 var(--ui);background:var(--ink);color:#fff;padding:.7em 1.1em;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.35);animation:toast 2.2s forwards;pointer-events:none;text-align:center;max-width:calc(100vw - 32px)}
+@keyframes toast{0%{opacity:0;transform:translate(-50%,12px)}10%,80%{opacity:1;transform:translate(-50%,0)}100%{opacity:0}}
+@media (max-width:420px){.card.wide{grid-column:auto}.shop-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
 </style>
 </head>
 <body>
@@ -66,7 +112,7 @@ a.link{color:#bff4ff;font-weight:600}
 <button class="snd" id="snd" aria-label="Ton an/aus" title="Ton an/aus"></button>
 <div class="powbox" id="pow"></div>
 <div class="hud" id="hud" hidden>
-  <div class="pill"><span class="coin"></span><span id="coins">0</span></div>
+  <div class="pill" id="coinPill"><span class="coin"></span><span id="coins">0</span></div>
   <div class="pill"><span id="dist">0 m</span></div>
   <button class="pbtn" id="pauseBtn" aria-label="Pause"><i></i><i></i></button>
 </div>
@@ -74,8 +120,9 @@ a.link{color:#bff4ff;font-weight:600}
   <h1>Surfers Surf<small>3D</small></h1>
   <div class="mode-switch" role="group" aria-label="Version wählen"><a href="../" class="to2d">2D<small>Klassisch</small></a><span class="on" aria-current="true">3D<small>Neu</small></span></div>
   <p>Weich Felsen, Booten und Haien aus, spring über Treibholz, duck dich unter Stegen durch und flieg über Schanzen.</p>
-  <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button></div>
+  <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag<span class="pr"></span></button><button class="wbtn" data-w="abend">🌅 Abend<span class="pr"></span></button><button class="wbtn" data-w="canyon">🏜️ Canyon<span class="pr"></span></button></div>
   <button class="btn" id="go">Los!</button>
+  <div class="menu-row"><button class="btn sea" id="shopBtn">🛒 Shop</button><div class="pill bankpill"><span class="coin"></span><span id="bank">0</span></div></div>
   <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>
 </div>
@@ -83,7 +130,23 @@ a.link{color:#bff4ff;font-weight:600}
   <div class="big" id="overText">Platsch!</div>
   <p id="overStats"></p>
   <button class="btn" id="again">Nochmal</button>
+  <button class="btn sea" id="overShop">🛒 Shop</button>
   <p class="hint"><a class="link to2d" href="../">Zur 2D-Version</a></p>
+</div>
+<div class="screen shop-screen" id="shop" hidden>
+  <div class="shop-panel" role="dialog" aria-label="Shop">
+    <div class="shop-head">
+      <button class="sbtn sea" id="shopBack">← Zurück</button>
+      <h2>Shop</h2>
+      <div class="pill"><span class="coin"></span><span id="shopCoins">0</span></div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="boards">Bretter</button>
+      <button role="tab" data-tab="worlds">Welten</button>
+      <button role="tab" data-tab="powers">Power-Ups</button>
+    </div>
+    <div class="shop-grid" id="shopGrid"></div>
+  </div>
 </div>
 <div class="screen" id="pause" hidden>
   <div class="big">Pause</div>

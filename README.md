@@ -20,6 +20,8 @@ https://johannesmaletius-lgtm.github.io/Surferssurf/3d/
 - `3d/surfer.js` – lädt das Modell, Cartoon-Material mit Kontur, Posen auf dem Brett (IK); `3d/rig.js` – das Skelett
 - `3d/tools/build-surfer.mjs` – baut das Modell aus weichen Grundformen (einmalig `npm i meshoptimizer` in `3d/tools`,
   dann `node build-surfer.mjs`)
+- `3d/shop.js` – Shop mit Brettern (alle 9 aus 2D als Deck-Bemalung), Welten (Canyon für 800 Münzen) und Power-Up-Stufen.
+  Der Spielstand wird mit der 2D-Version geteilt: Münzen, Bretter, Welten und Stufen gelten in beiden Versionen.
 - `3d/sound.js` – Ton per WebAudio (Meer, Wind, Musik, Effekte), aus dem 2D-Spiel übernommen
 - `3d/vendor/three.min.js` – Three.js samt Zusatzmodulen in einer Datei, Lizenz in `3d/vendor/LICENSE-three.txt`
 - `3d/tools/vendor-entry.js` – so wird die Vendor-Datei neu gebaut (Anleitung steht oben in der Datei)
@@ -28,7 +30,10 @@ Steuerung: Pfeiltasten/WASD oder Wischen – links/rechts ausweichen, hoch sprin
 Wischen reagiert schon während der Bewegung; ein Sprung kurz vor der Landung wird gemerkt, Ducken in der Luft holt schnell runter.
 Hindernisse: Felsen, Treibholz und Schildkröten (springen), Felsbögen und Holzstege (ducken), Seezeichen-Tonnen,
 entgegenkommende Motorboote, pendelnde Haie (springen) und Sprungschanzen mit Münzbogen.
-Welten: Mittag und Abend (Auswahl im Startbildschirm). Power-ups: Magnet, Schutzblase, Drachen.
+Welten (Auswahl im Startbildschirm): Tropeninsel am Mittag und am Abend, dazu der **Canyon** – rote Felswände mit
+Gesteinsschichten, Wasserfälle, wackelige Hängebrücken (ducken!) und Tafelberge; im Fluss Treibholz statt Schildkröten.
+Power-ups: Magnet, Schutzblase, Drachen.
+Münzen: geprägte Goldtaler mit Glanzstreif; eingesammelt hüpfen sie über den Kopf, blitzen auf und fliegen in den Zähler.
 Ein Wisch wechselt genau eine Spur (zurückwischen geht ohne Absetzen).
 
 Flüssig auch auf älteren Geräten: Die Grafik stellt sich selbst ein (Stufe 2 mit Leuchten, 1 ohne, 0 zusätzlich mit
