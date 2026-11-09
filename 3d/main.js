@@ -639,6 +639,9 @@ const SHARK = (() => {
   g.add(withOutline(new THREE.Mesh(tg, grey), 0.02));
   const body = new THREE.Mesh(new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#06223a', transparent: true, opacity: 0.38, depthWrite: false, fog: true }));
   body.scale.set(1.9, 1, 0.55); body.position.set(0.55, -0.08, 0); body.renderOrder = 1; g.add(body);
+  // weiße Bugwelle an der Flosse: auch von weitem gut zu sehen
+  const ring = new THREE.Mesh(foamGeo, foamMat); ring.scale.set(1.1, 1, 0.5); ring.position.set(-0.45, -0.06, 0); ring.renderOrder = 1; g.add(ring);
+  g.children[0].scale.setScalar(1.35); g.children[1].scale.setScalar(1.2);
   return g;
 })();
 // große Seezeichen-Tonne mit Blinklicht – ausweichen
@@ -1195,7 +1198,7 @@ function update(dt) {
     if (pw.kite > 0 && state === 'play') { P.air = true; P.vy = 0; P.airT += dt; P.y = damp(P.y, wy + 5.4, 2.4, dt); }
     else if (P.air) { P.airT += dt; P.vy -= gravAt(P.vy) * dt; P.y += P.vy * dt; if (P.trick) P.trickT += dt; if (P.y <= wy && P.vy < 0) { P.y = wy; land(); } }
     else P.y = damp(P.y, wy, 30, dt);
-    P.landT = Math.max(0, P.landT - dt); P.duck = Math.max(0, P.duck - dt);
+    P.landT = Math.max(0, P.landT - dt); P.duck = Math.max(downHeld && !P.air && state === 'play' && P.duck > 0 ? 0.2 : 0, P.duck - dt);
     // Gischt an den Kanten des Bretts
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
@@ -1352,10 +1355,14 @@ addEventListener('keydown', e => {
   if (k === 'arrowleft' || k === 'a') moveLane(-1);
   else if (k === 'arrowright' || k === 'd') moveLane(1);
   else if (k === 'arrowup' || k === 'w' || k === ' ') jump();
-  else if (k === 'arrowdown' || k === 's') duck();
+  else if (k === 'arrowdown' || k === 's') { downHeld = true; duck(); }
   else return;
   e.preventDefault();
 });
+// Runter gedrückt halten: bleibt geduckt
+let downHeld = false;
+addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k === 'arrowdown' || k === 's') downHeld = false; });
+addEventListener('blur', () => { downHeld = false; });
 // Wischen reagiert sofort, sobald der Finger weit genug gewandert ist – nicht erst beim Loslassen.
 // Ohne Absetzen kann man weiterwischen (z. B. erst zur Seite, dann hoch).
 let touch = null;
