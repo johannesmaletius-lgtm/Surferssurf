@@ -59,6 +59,30 @@ a.link{color:#bff4ff;font-weight:600}
 .mode-switch .on{background:linear-gradient(#5fd0f2,#1b8fd6);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
 .mode-switch small{font:600 .55em/1 var(--ui);letter-spacing:0;display:block;margin-top:.2em;opacity:.85;text-shadow:none}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
+.menu-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+.btn.sea span{color:#fff3b0}
+.purse{display:inline-flex;gap:.45em;align-items:center;font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.25);border-radius:999px;padding:.4em .9em .34em}
+.shop{justify-content:flex-end;background:linear-gradient(rgba(5,30,60,0) 45%,rgba(5,30,60,.55));pointer-events:none;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+.shop>*{pointer-events:auto}
+.shop .purse{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px}
+.card{width:min(560px,100%);background:rgba(10,32,58,.82);border:3px solid var(--ink);border-radius:22px;box-shadow:0 6px 0 var(--ink);padding:14px 14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:8px 10px;align-items:center;backdrop-filter:blur(6px)}
+.card .info{text-align:center;min-height:5.2em;display:flex;flex-direction:column;gap:6px;justify-content:center}
+.fname{font:400 clamp(26px,4.6vmin,40px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 var(--ink)}
+.card p{font-size:clamp(14px,2vmin,17px);margin:0 auto}
+.arrow{width:48px;height:48px;border-radius:50%;border:3px solid var(--ink);background:linear-gradient(#5fd0f2,#1b8fd6);color:#fff;font:400 30px/1 var(--display);cursor:pointer;box-shadow:0 3px 0 var(--ink);padding:0 0 4px}
+.arrow:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+.card .acts{grid-column:1/-1;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.card .acts .btn{font-size:clamp(20px,3.4vmin,30px);display:inline-flex;gap:.3em;align-items:center}
+.btn.poor{filter:saturate(.35) brightness(.9)}
+.btn.worn{background:linear-gradient(#9ff0a0,#3cc45a)}
+.dots{display:flex;gap:6px;justify-content:center}.dots i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.4)}
+.dots i.own{background:rgba(255,210,63,.55)}.dots i.on{background:#ffd23f;transform:scale(1.35)}
+.msg{grid-column:1/-1;text-align:center;min-height:1.3em;font-weight:600;color:#fff3b0;margin:0}
+.loading{position:fixed;left:0;right:0;top:40%;text-align:center;font-weight:600;text-shadow:0 2px 0 var(--ink)}
+.loading[hidden]{display:none}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+.shake{animation:shake .35s}
+@media (max-aspect-ratio:4/5){.card .acts .btn{font-size:19px;padding:.42em .75em .3em}.card .acts{flex-wrap:nowrap}.card{padding:12px 10px 14px}}
 </style>
 </head>
 <body>
@@ -76,14 +100,28 @@ a.link{color:#bff4ff;font-weight:600}
   <p>Weich Felsen, Booten und Haien aus, spring über Treibholz, duck dich unter Stegen durch und flieg über Schanzen.</p>
   <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button></div>
   <button class="btn" id="go">Los!</button>
+  <div class="menu-row"><button class="btn sea" id="toShop">🏄 Surfer: <span>Kai</span></button><div class="purse" title="Deine Münzen (gemeinsam mit der 2D-Version)"><span class="coin"></span><span id="wallet">0</span></div></div>
   <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>
 </div>
 <div class="screen" id="over" hidden>
   <div class="big" id="overText">Platsch!</div>
   <p id="overStats"></p>
+  <p class="best" id="overWallet"></p>
   <button class="btn" id="again">Nochmal</button>
+  <button class="btn sea" id="overShop">🏄 Surfer</button>
   <p class="hint"><a class="link to2d" href="../">Zur 2D-Version</a></p>
+</div>
+<div class="screen shop" id="shop" hidden>
+  <div class="purse" title="Deine Münzen (gemeinsam mit der 2D-Version)"><span class="coin"></span><span id="shopCoins">0</span></div>
+  <p class="loading" id="shopLoad" hidden>Surfer kommt …</p>
+  <div class="card" role="group" aria-label="Surfer auswählen">
+    <button class="arrow" id="shopPrev" aria-label="Vorheriger Surfer">‹</button>
+    <div class="info"><div class="fname" id="shopName">Kai</div><p id="shopDesc"></p><div class="dots" id="shopDots"></div></div>
+    <button class="arrow" id="shopNext" aria-label="Nächster Surfer">›</button>
+    <div class="acts"><button class="btn" id="shopAct">Gewählt ✓</button><button class="btn sea" id="shopBack">Zurück</button></div>
+    <p class="msg" id="shopMsg" aria-live="polite"></p>
+  </div>
 </div>
 <div class="screen" id="pause" hidden>
   <div class="big">Pause</div>

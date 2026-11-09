@@ -361,8 +361,54 @@ function makeBoard() {
   return m;
 }
 
-// der Surfer: eigenes 3D-Modell (models/surfer.glb, gebaut von tools/build-surfer.mjs) mit Skelett
-const surfer = await loadSurfer('./models/surfer.glb', { gradientMap: toonRamp });
+/* ---------- Spielstand: Münzen und Surfer teilt sich das 3D-Spiel mit der 2D-Version ---------- */
+const SAVE_KEY = 'surfersSurf.web.v1', NOSAVE = /[?&]nosave\b/.test(location.search);
+// Figuren: gleiche Kennungen und Preise wie im 2D-Spiel – was dort gekauft wurde, gehört einem auch hier
+const FIGURES = [
+  { id: 'kai', name: 'Kai', price: 0, desc: 'Der Held vom Titelbild: gelbe Kappe, Lycra-Shirt und Boardshorts.' },
+  { id: 'lei', name: 'Leilani', price: 600, desc: 'Pferdeschwanz, Hibiskusblüte und null Angst vor Wellen.' },
+  { id: 'nalu', name: 'Nalu', price: 1200, desc: 'Lockenkopf in Rashguard und Boardshorts.' },
+  { id: 'koko', name: "Käpt'n Koko", price: 2200, desc: 'Alter Seebär mit Kopftuch und Rauschebart. Hat schon jede Welle gesehen.' },
+  { id: 'diver', name: 'Tauchanzug', price: 2500, desc: 'Maske, Schnorchel, Pressluftflasche – bereit für die Tiefe.' },
+  { id: 'finn', name: 'Finn der Hai', price: 3500, desc: 'Im Hai-Kostüm mit Flosse und Schwanz. Die Delfine sind verwirrt.' },
+];
+const figById = id => FIGURES.find(f => f.id === id);
+function readSave() {
+  let s = null; try { s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) {}
+  if (!s || typeof s !== 'object') s = {};
+  if (!(s.coins >= 0)) s.coins = 0;
+  if (!Array.isArray(s.surfers)) s.surfers = ['kai'];
+  if (!s.surfers.includes('kai')) s.surfers.unshift('kai');
+  if (!s.surfers.includes(s.surfer)) s.surfer = 'kai';
+  return s;
+}
+let wallet = readSave();
+// immer frisch lesen und nur die eigenen Felder ändern – den Rest des 2D-Spielstands nicht anfassen
+function changeSave(fn) { const s = NOSAVE ? wallet : readSave(); fn(s); wallet = s; if (!NOSAVE) try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) {} }
+// Figur zum Anzeigen: die gewählte, außer sie ist hier (noch) nicht als Modell vorhanden
+const wornFig = () => figById(wallet.surfer) ? wallet.surfer : 'kai';
+
+// die Surfer: eigene 3D-Modelle (models/surfer*.glb, gebaut von tools/build-surfer.mjs) mit Skelett, erst bei Bedarf geladen
+const figUrl = id => './models/' + (id === 'kai' ? 'surfer.glb' : `surfer-${id}.glb`);
+const figCache = new Map();
+function getFigure(id) {
+  if (!figCache.has(id)) figCache.set(id, loadSurfer(figUrl(id), { gradientMap: toonRamp }).catch(e => { figCache.delete(id); throw e; }));
+  return figCache.get(id);
+}
+let surfer, surferId;
+try { surfer = await getFigure(wornFig()); surferId = wornFig(); } catch (e) { surfer = await getFigure('kai'); surferId = 'kai'; }
+let wantFig = surferId;
+// Figur wechseln (lädt das Modell, falls nötig); liefert false, wenn inzwischen eine andere gewünscht ist
+async function showFigure(id) {
+  wantFig = id;
+  let s; try { s = await getFigure(id); } catch (e) { return false; }
+  if (wantFig !== id) return false;
+  if (s !== surfer) {
+    s.root.position.copy(surfer.root.position); s.root.rotation.copy(surfer.root.rotation);
+    player.remove(surfer.root); player.add(s.root); surfer = s; surferId = id;
+  }
+  return true;
+}
 const board = bakeOne(makeBoard());
 const player = new THREE.Group(); // folgt Position + Wellenneigung
 player.add(board, surfer.root);
@@ -1071,6 +1117,7 @@ function applyTheme(id) {
 const BEST_KEY = 'surfersSurf3d.best';
 let best = 0; try { best = +localStorage.getItem(BEST_KEY) || 0; } catch (e) {}
 let recordShown = false;
+let shopCam = 0;
 let state = 'ready', runCoins = 0, startZ = 0, nextRowZ = -40, crashT = 0, shake = 0, hitStop = 0;
 const CR = { body: new THREE.Vector3(), vel: new THREE.Vector3(), rot: 0, board: new THREE.Vector3(), bvel: new THREE.Vector3(), brot: new THREE.Vector3() };
 const camState = { pos: new THREE.Vector3(0, 3, 7), look: new THREE.Vector3(), fov: 0 };
@@ -1184,6 +1231,7 @@ function update(dt) {
   if (play) P.speed = Math.min(30, P.speed + dt * 0.35);
   Sound.wind(play ? clamp((P.speed - 12) / 30, 0, 0.45) : 0.04);
   if (state === 'ready') { P.speed = 12; P.x = Math.sin(time * 0.5) * 1.2; P.lean = Math.cos(time * 0.5) * 0.35; }
+  if (state === 'shop') { P.speed = 10; P.x = damp(P.x, 0, 3, dt); P.lean = damp(P.lean, Math.sin(time * 0.7) * 0.25, 3, dt); }
   if (state !== 'crash') {
     P.z -= P.speed * dt;
     if (state === 'play') {
@@ -1219,8 +1267,10 @@ function update(dt) {
     if (crashT > 1.3 && $('over').hidden) {
       const dist = Math.floor(startZ - P.z), rec = dist > best;
       if (rec) { best = dist; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
+      if (runCoins > 0) changeSave(s => { s.coins += runCoins; });
       $('overText').textContent = rec && dist > 20 ? 'Neuer Rekord!' : pick(['Platsch!', 'Wipeout!', 'Autsch!']);
       $('overStats').textContent = `${dist} m · ${runCoins} Münzen · Rekord ${best} m`;
+      $('overWallet').textContent = `Deine Münzen: ${wallet.coins.toLocaleString('de-DE')}`;
       $('over').hidden = false; $('hud').hidden = true; showBest();
     }
   }
@@ -1302,18 +1352,26 @@ function syncScene(dt) {
   camState.look.set(camState.pos.x * 0.5 + P.x * 0.25, flying ? P.y + 0.2 : (state === 'crash' ? P.y : Math.max(P.y, 0)) * 0.25 + 0.3, P.z - ahead);
   camera.position.copy(camState.pos);
   // Startbildschirm: Kamera kreist langsam um den Surfer, beim Start weicher Übergang in die Verfolgerkamera
-  if (state === 'ready' || camBlendT < 1) {
-    if (state !== 'ready') camBlendT = Math.min(1, camBlendT + dt / 1.3);
-    const e = state === 'ready' ? 0 : smooth01(camBlendT), a = time * 0.16 + 0.5, R = camera.aspect < 0.8 ? 7.5 : 6.2;
+  shopCam = damp(shopCam, state === 'shop' ? 1 : 0, 3.5, dt);
+  if (state === 'ready' || state === 'shop' || camBlendT < 1) {
+    if (state !== 'ready' && state !== 'shop') camBlendT = Math.min(1, camBlendT + dt / 1.3);
+    const e = state === 'ready' || state === 'shop' ? 0 : smooth01(camBlendT), a = time * 0.16 + 0.5, R = camera.aspect < 0.8 ? 7.5 : 6.2;
     _v3.set(P.x + Math.sin(a) * R, P.y + 2.3, P.z + Math.cos(a) * R);
+    _v2.set(P.x, P.y + (camera.aspect < 0.8 ? 3.6 : 3.1), P.z);
+    if (shopCam > 0.001) {
+      // Shop: nah von schräg vorn (der Surfer schaut in Fahrtrichtung), langsam hin und her; die Figur sitzt über der Karte
+      const k = smooth01(shopCam), port = camera.aspect < 0.8, b = 2.25 + Math.sin(time * 0.35) * 0.5, Rs = port ? 4.6 : 3.9;
+      _v1.set(P.x + Math.sin(b) * Rs, P.y + (port ? 1.0 : 1.2), P.z + Math.cos(b) * Rs);
+      _v3.lerp(_v1, k); _v2.lerp(_v1.set(P.x, P.y + (port ? 0.45 : 0.6), P.z), k);
+    }
     camera.position.lerpVectors(_v3, camState.pos, e);
-    camState.look.lerpVectors(_v2.set(P.x, P.y + (camera.aspect < 0.8 ? 3.6 : 3.1), P.z), camState.look, e);
+    camState.look.lerpVectors(_v2, camState.look, e);
   }
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
   if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride, l = surf3d.lookOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]);
     if (surf3d.lookAtGull) camera.lookAt(gulls[0].m.position); else if (l) camera.lookAt(P.x + l[0], l[1], P.z + l[2]); else camera.lookAt(P.x, P.y + 1.0, P.z); }
-  const fovT = lerp(76, 58, ka) + clamp((P.speed - 14) / 16, 0, 1) * 6;
+  const fovT = lerp(lerp(76, 58, ka) + clamp((P.speed - 14) / 16, 0, 1) * 6, 50, smooth01(shopCam));
   camState.fov = damp(camState.fov || fovT, fovT, 2, dt);
   if (Math.abs(camera.fov - camState.fov) > 0.01) { camera.fov = camState.fov; camera.updateProjectionMatrix(); }
   sun.target.position.copy(player.position); sun.position.copy(player.position).addScaledVector(SUN_DIR, 60);
@@ -1355,6 +1413,11 @@ function frame(now) {
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.key.toLowerCase();
+  if (state === 'shop') {
+    if (k === 'arrowleft' || k === 'a') shopStep(-1); else if (k === 'arrowright' || k === 'd') shopStep(1);
+    else if (k === 'enter' || k === ' ') shopAct(); else if (k === 'escape' || k === 'backspace') closeShop(); else return;
+    e.preventDefault(); return;
+  }
   if ((k === 'escape' || k === 'p') && (state === 'play' || state === 'pause')) { state === 'play' ? pause() : resume(); e.preventDefault(); return; }
   if (state === 'pause') { if (k === ' ' || k === 'enter') { resume(); e.preventDefault(); } return; }
   if (state !== 'play' && (k === ' ' || k === 'enter') && (state === 'ready' || !$('over').hidden)) { start(); e.preventDefault(); return; }
@@ -1383,6 +1446,7 @@ canvas.addEventListener('pointermove', e => {
   if (!touch || e.pointerId !== touch.id) return;
   const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < swipeTh()) return;
+  if (state === 'shop') { if (Math.abs(dx) > Math.abs(dy) && !touch.acted) { shopStep(dx > 0 ? -1 : 1); touch.acted = true; } return; }
   if (Math.abs(dx) > Math.abs(dy) * 0.9) { const d = dx > 0 ? 1 : -1; if (d !== touch.lastH) { moveLane(d); touch.lastH = d; touch.lastV = 0; touch.acted = true; } }
   else { const d = dy < 0 ? -1 : 1; if (d !== touch.lastV) { if (d < 0) jump(); else duck(); touch.lastV = d; touch.lastH = 0; touch.acted = true; } }
   touch.x = e.clientX; touch.y = e.clientY;
@@ -1399,7 +1463,7 @@ document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e =>
 applyTheme(themeId);
 $('pauseBtn').addEventListener('click', e => { e.stopPropagation(); pause(); });
 $('resume').addEventListener('click', resume);
-$('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
+$('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); syncMenu(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 showBest();
 const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
@@ -1408,6 +1472,61 @@ sndBtn.addEventListener('click', e => { e.stopPropagation(); Sound.toggle(); syn
 const wakeAudio = () => { Sound.init(); removeEventListener('pointerdown', wakeAudio); removeEventListener('keydown', wakeAudio); };
 addEventListener('pointerdown', wakeAudio); addEventListener('keydown', wakeAudio);
 $('again').addEventListener('click', start);
+
+/* ---------- Surfer-Shop: Figur in der Szene ansehen, kaufen, auswählen ---------- */
+let shopIdx = 0, msgT = 0;
+const fmt = n => n.toLocaleString('de-DE');
+function syncMenu() {
+  $('wallet').textContent = fmt(wallet.coins);
+  $('toShop').querySelector('span').textContent = figById(wornFig()).name;
+}
+function openShop() {
+  if (state === 'crash') { reset(); $('over').hidden = true; camBlendT = 0; }
+  if (state !== 'ready' && state !== 'crash' && state !== 'shop') return;
+  wallet = readSave(); state = 'shop'; $('start').hidden = true; $('hud').hidden = true; $('shop').hidden = false; $('shopMsg').textContent = '';
+  shopIdx = Math.max(0, FIGURES.findIndex(f => f.id === wornFig()));
+  renderShop(); $('shopAct').focus({ preventScroll: true });
+  for (const f of FIGURES) if (wallet.surfers.includes(f.id)) getFigure(f.id).catch(() => {}); // eigene Figuren schon mal laden
+}
+function closeShop() {
+  if (state !== 'shop') return;
+  state = 'ready'; $('shop').hidden = true; $('start').hidden = false;
+  showFigure(wornFig()); syncMenu(); canvas.focus();
+}
+function shopStep(d) { shopIdx = (shopIdx + d + FIGURES.length) % FIGURES.length; Sound.fx.swish(); $('shopMsg').textContent = ''; renderShop(); }
+function renderShop() {
+  const f = FIGURES[shopIdx], owned = wallet.surfers.includes(f.id), worn = wornFig() === f.id, btn = $('shopAct');
+  $('shopName').textContent = f.name; $('shopDesc').textContent = f.desc; $('shopCoins').textContent = fmt(wallet.coins);
+  btn.classList.toggle('poor', !owned && wallet.coins < f.price); btn.classList.toggle('worn', worn);
+  btn.innerHTML = worn ? 'Gewählt ✓' : owned ? 'Auswählen' : `Kaufen <span class="coin"></span> ${fmt(f.price)}`;
+  $('shopDots').innerHTML = FIGURES.map((g, i) => `<i class="${i === shopIdx ? 'on' : ''} ${wallet.surfers.includes(g.id) ? 'own' : ''}"></i>`).join('');
+  $('shopLoad').hidden = true;
+  const t = setTimeout(() => { if (FIGURES[shopIdx] === f) $('shopLoad').hidden = false; }, 150);
+  showFigure(f.id).then(ok => { clearTimeout(t); if (ok || FIGURES[shopIdx] !== f) $('shopLoad').hidden = true; else $('shopLoad').textContent = 'Modell konnte nicht geladen werden'; });
+  getFigure(FIGURES[(shopIdx + 1) % FIGURES.length].id).catch(() => {}); // nächste schon mal holen
+}
+function say(text) { $('shopMsg').textContent = text; clearTimeout(msgT); msgT = setTimeout(() => { $('shopMsg').textContent = ''; }, 2600); }
+function shopAct() {
+  const f = FIGURES[shopIdx], btn = $('shopAct');
+  if (wornFig() === f.id) { closeShop(); return; }
+  if (wallet.surfers.includes(f.id)) { changeSave(s => { s.surfer = f.id; }); Sound.fx.coin(3); say(`${f.name} surft jetzt für dich!`); renderShop(); return; }
+  wallet = readSave();
+  if (wallet.coins < f.price) {
+    btn.classList.remove('shake'); void btn.offsetWidth; btn.classList.add('shake');
+    say(`Dir fehlen noch ${fmt(f.price - wallet.coins)} Münzen.`); return;
+  }
+  changeSave(s => { s.coins -= f.price; if (!s.surfers.includes(f.id)) s.surfers.push(f.id); s.surfer = f.id; });
+  Sound.fx.record(); say(`Gekauft! ${f.name} surft jetzt für dich.`); renderShop();
+}
+$('toShop').addEventListener('click', e => { e.stopPropagation(); Sound.init(); openShop(); });
+$('overShop').addEventListener('click', e => { e.stopPropagation(); openShop(); });
+$('shopPrev').addEventListener('click', e => { e.stopPropagation(); shopStep(-1); });
+$('shopNext').addEventListener('click', e => { e.stopPropagation(); shopStep(1); });
+$('shopAct').addEventListener('click', e => { e.stopPropagation(); shopAct(); });
+$('shopBack').addEventListener('click', e => { e.stopPropagation(); closeShop(); });
+// in der 2D-Version (anderer Tab) gekauft oder gesammelt? Beim Zurückkommen neu lesen
+addEventListener('focus', () => { if (state === 'ready' || state === 'shop') { wallet = readSave(); syncMenu(); if (state === 'shop') renderShop(); } });
+syncMenu();
 // Wechsel zur 2D-Version merken, damit die Web-App beim nächsten Start dort weitermacht
 document.querySelectorAll('a.to2d').forEach(a => a.addEventListener('click', () => { try { localStorage.setItem('surfersSurf.mode', '2d'); } catch (e) {} }));
 
@@ -1429,4 +1548,4 @@ resize();
 warmUp();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
+window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, get surfer() { return surfer; }, get wallet() { return wallet; }, openShop, closeShop, shopStep, shopAct, showFigure, FIGURES, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
