@@ -1,0 +1,21 @@
+{
+  "name": "Surfers Surf",
+  "short_name": "Surfers Surf",
+  "description": "Endless Runner auf der Welle – klassisch in 2D oder neu in 3D.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0b5f86",
+  "theme_color": "#0b5f86",
+  "lang": "de",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "2D spielen", "url": "./?2d" },
+    { "name": "3D spielen", "url": "./3d/" }
+  ]
+}
