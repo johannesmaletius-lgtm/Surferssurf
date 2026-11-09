@@ -177,7 +177,7 @@ const waterMat = new THREE.ShaderMaterial({
       n = normalize(n);
       vec3 V = normalize(uCam - vWorld);
       float ndv = max(dot(n, V), 0.);
-      float fres = .02 + .98 * pow(1. - ndv, 5.);
+      float fres = .02 + .98 * pow(clamp(1. - ndv, 0., 1.), 5.); // nie pow() mit negativer Basis: ergibt NaN, das Leuchten macht daraus einen Blitz
       vec3 R = reflect(-V, n); R.y = abs(R.y);
       vec3 skyc = mix(uHorizon * .9, uZenith, pow(clamp(R.y, 0., 1.), .45));
       skyc += uSunCol * pow(max(dot(R, uSun), 0.), 12.) * .25;
@@ -743,8 +743,8 @@ const ICON_URL = Object.fromEntries(Object.entries(ICONS).map(([k, t]) => [k, t.
 const bubbleMat = new THREE.ShaderMaterial({
   uniforms: { uCol: { value: new THREE.Color('#bff4ff') }, uA: { value: 0.85 } },
   vertexShader: `varying vec3 vN, vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `uniform vec3 uCol; uniform float uA; varying vec3 vN, vV; void main(){ float f = pow(1. - abs(dot(vN, vV)), 2.2); vec3 c = mix(uCol * .6, vec3(1.), f * .7);
-    float hl = smoothstep(.93, .99, dot(vN, normalize(vec3(-.5, .6, .6)))); gl_FragColor = vec4(c + hl, (f * .9 + .08 + hl) * uA);
+  fragmentShader: `uniform vec3 uCol; uniform float uA; varying vec3 vN, vV; void main(){ vec3 n = normalize(vN), v = normalize(vV); float f = pow(clamp(1. - abs(dot(n, v)), 0., 1.), 2.2); vec3 c = mix(uCol * .6, vec3(1.), f * .7);
+    float hl = smoothstep(.93, .99, dot(n, normalize(vec3(-.5, .6, .6)))); gl_FragColor = vec4(min(c + hl, vec3(1.2)), clamp((f * .9 + .08 + hl) * uA, 0., 1.));
     #include <colorspace_fragment>
     }`,
   transparent: true, depthWrite: false,
