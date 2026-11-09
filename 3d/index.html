@@ -3,7 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>Surfers Surf 3D – Prototyp</title>
+<title>Surfers Surf 3D</title>
+<meta name="theme-color" content="#0b5f86">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Surfers Surf">
+<link rel="manifest" href="../manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icons/icon-192.png">
+<link rel="icon" href="../icons/icon-192.png">
+<script>
+// ohne WebGL geht 3D nicht: zurück zur 2D-Version
+(() => { let ok = false; try { const c = document.createElement('canvas'); ok = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
+  try { localStorage.setItem('surfersSurf.mode', ok ? '3d' : '2d'); } catch (e) {}
+  if (!ok) location.replace('../?2d'); })();
+if ('serviceWorker' in navigator && location.protocol === 'https:') addEventListener('load', () => navigator.serviceWorker.register('../sw.js', { scope: '../' }).catch(() => {}));
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap">
@@ -38,6 +53,11 @@ a.link{color:#bff4ff;font-weight:600}
 .worlds{display:flex;gap:10px}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
 .wbtn.on{background:#ffd23f;color:#0d2a4a;border-color:#0d2a4a;box-shadow:0 3px 0 #0d2a4a}
 .best{font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);color:#fff3b0}
+.mode-switch{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:rgba(10,22,38,.62);border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink)}
+.mode-switch a,.mode-switch span{display:block;min-width:3.2em;text-align:center;padding:.36em .9em .26em;border-radius:999px;font:400 clamp(18px,2.8vmin,26px)/1 var(--display);letter-spacing:.04em;color:#fff;text-decoration:none;text-shadow:0 2px 0 var(--ink)}
+.mode-switch a{opacity:.8}.mode-switch a:hover{opacity:1;background:rgba(255,255,255,.12)}
+.mode-switch .on{background:linear-gradient(#5fd0f2,#1b8fd6);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.mode-switch small{font:600 .55em/1 var(--ui);letter-spacing:0;display:block;margin-top:.2em;opacity:.85;text-shadow:none}
 .big{font:400 clamp(30px,6vmin,60px)/1 var(--display);text-shadow:0 4px 0 var(--ink)}
 </style>
 </head>
@@ -51,19 +71,19 @@ a.link{color:#bff4ff;font-weight:600}
   <button class="pbtn" id="pauseBtn" aria-label="Pause"><i></i><i></i></button>
 </div>
 <div class="screen" id="start">
-  <h1>Surfers Surf<small>3D-Prototyp</small></h1>
-  <p>Echte Wellen, Licht und Schatten mit Three.js. Weiche den Felsen aus, spring über Treibholz und sammle Münzen.</p>
+  <h1>Surfers Surf<small>3D</small></h1>
+  <div class="mode-switch" role="group" aria-label="Version wählen"><a href="../" class="to2d">2D<small>Klassisch</small></a><span class="on" aria-current="true">3D<small>Neu</small></span></div>
+  <p>Weich Felsen, Booten und Haien aus, spring über Treibholz, duck dich unter Stegen durch und flieg über Schanzen.</p>
   <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button></div>
   <button class="btn" id="go">Los!</button>
   <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>
-  <p class="hint"><a class="link" href="../">Zur 2D-Version</a></p>
 </div>
 <div class="screen" id="over" hidden>
   <div class="big" id="overText">Platsch!</div>
   <p id="overStats"></p>
   <button class="btn" id="again">Nochmal</button>
-  <p class="hint"><a class="link" href="../">Zur 2D-Version</a></p>
+  <p class="hint"><a class="link to2d" href="../">Zur 2D-Version</a></p>
 </div>
 <div class="screen" id="pause" hidden>
   <div class="big">Pause</div>

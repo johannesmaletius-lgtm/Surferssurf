@@ -1267,7 +1267,7 @@ function syncScene(dt) {
   if (shieldMesh.visible) { shieldMesh.position.set(P.x, P.y + 1.05, P.z); const w = Math.sin(time * 5) * 0.03; shieldMesh.scale.set(1 + w, 1 - w, 1 + w); }
   kite.visible = pw.kite > 0 && state === 'play' && (pw.kite > 1.2 || Math.floor(time * 8) % 2 === 0);
   if (kite.visible) {
-    kite.position.set(P.x + Math.sin(time * 0.9) * 0.4, P.y + 3.3, P.z - 1.6); kite.rotation.set(-0.25, 0, Math.sin(time * 1.3) * 0.1);
+    kite.position.set(P.x + Math.sin(time * 0.9) * 0.4, P.y + 3.6, P.z - 1.2); kite.rotation.set(-0.25, 0, Math.sin(time * 1.3) * 0.1);
     const la = kite.userData.lines.geometry.attributes.position, hl = surfer.parts.handL.getWorldPosition(_v1), hr = surfer.parts.handR.getWorldPosition(_v2);
     la.setXYZ(0, hl.x, hl.y, hl.z); la.setXYZ(1, kite.position.x - 1.5, kite.position.y + 0.2, kite.position.z); la.setXYZ(2, hr.x, hr.y, hr.z); la.setXYZ(3, kite.position.x + 1.5, kite.position.y + 0.2, kite.position.z); la.needsUpdate = true;
   }
@@ -1294,9 +1294,9 @@ function syncScene(dt) {
   // Hochformat (Handy): noch höher, weiter weg und breiter, damit die äußeren Spuren im Bild bleiben
   const ka = clamp((camera.aspect - 0.5) / 0.8, 0, 1);
   const back = lerp(8.2, 6.4, ka), up = lerp(5.6, 4.6, ka), follow = lerp(0.3, 0.45, ka), ahead = lerp(11, 9, ka);
-  const flying = pw.kite > 0 && state === 'play', tx = state === 'crash' ? P.x : P.x * follow, ty = (state === 'crash' ? P.y : Math.max(P.y, 0)) * (flying ? 0.85 : 0.3) + up + camKick + (flying ? 1 : 0), tz = P.z + back;
+  const flying = pw.kite > 0 && state === 'play', tx = state === 'crash' ? P.x : P.x * follow, ty = flying ? P.y + 2.4 + camKick : (state === 'crash' ? P.y : Math.max(P.y, 0)) * 0.3 + up + camKick, tz = P.z + back;
   camState.pos.x = damp(camState.pos.x, tx, 7, dt); camState.pos.y = damp(camState.pos.y, ty, 5, dt); camState.zOff = damp(camState.zOff || 0, flying ? 1.5 : 0, 3, dt); camState.pos.z = tz + camState.zOff;
-  camState.look.set(camState.pos.x * 0.5 + P.x * 0.25, (state === 'crash' ? P.y : Math.max(P.y, 0)) * (flying ? 0.8 : 0.25) + 0.3, P.z - ahead);
+  camState.look.set(camState.pos.x * 0.5 + P.x * 0.25, flying ? P.y + 0.2 : (state === 'crash' ? P.y : Math.max(P.y, 0)) * 0.25 + 0.3, P.z - ahead);
   camera.position.copy(camState.pos);
   // Startbildschirm: Kamera kreist langsam um den Surfer, beim Start weicher Übergang in die Verfolgerkamera
   if (state === 'ready' || camBlendT < 1) {
@@ -1392,6 +1392,8 @@ sndBtn.addEventListener('click', e => { e.stopPropagation(); Sound.toggle(); syn
 const wakeAudio = () => { Sound.init(); removeEventListener('pointerdown', wakeAudio); removeEventListener('keydown', wakeAudio); };
 addEventListener('pointerdown', wakeAudio); addEventListener('keydown', wakeAudio);
 $('again').addEventListener('click', start);
+// Wechsel zur 2D-Version merken, damit die Web-App beim nächsten Start dort weitermacht
+document.querySelectorAll('a.to2d').forEach(a => a.addEventListener('click', () => { try { localStorage.setItem('surfersSurf.mode', '2d'); } catch (e) {} }));
 
 resize();
 requestAnimationFrame(t => { last = t; frame(t); });

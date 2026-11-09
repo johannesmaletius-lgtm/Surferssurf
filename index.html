@@ -6,8 +6,14 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Surfers Surf">
-<link rel="apple-touch-icon" id="appIcon">
-<link rel="icon" id="favIcon">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<script>
+// Web-App: zuletzt gewählte Version (2D/3D) wieder öffnen; "?2d" erzwingt die 2D-Version
+try { if (!/[?&]2d\b/.test(location.search) && localStorage.getItem('surfersSurf.mode') === '3d') location.replace('3d/' + location.hash); } catch (e) {}
+if ('serviceWorker' in navigator && location.protocol === 'https:') addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Luckiest+Guy&display=swap">
@@ -141,8 +147,12 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .world-pill .chev{font-size:1.3em;line-height:.8;opacity:.85}
 .world-pill:hover{background:rgba(10,22,38,.74)}
 .exp-pill{background:rgba(170,70,20,.72)}
-.d3-pill{background:rgba(20,110,150,.78);text-decoration:none}
-.d3-pill:hover{background:rgba(20,110,150,.92)}
+/* Umschalter 2D / 3D */
+.mode-switch{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:rgba(10,22,38,.62);border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink)}
+.mode-switch a,.mode-switch span{display:block;min-width:3.2em;text-align:center;padding:.36em .9em .26em;border-radius:999px;font:400 clamp(18px,2.6vmax,26px)/1 var(--display);letter-spacing:.04em;color:#fff;text-decoration:none;text-shadow:0 2px 0 var(--ink)}
+.mode-switch a{opacity:.8}.mode-switch a:hover{opacity:1;background:rgba(255,255,255,.12)}
+.mode-switch .on{background:linear-gradient(#5fd0f2,#1b8fd6);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.mode-switch small{font:600 .55em/1 var(--ui);letter-spacing:0;display:block;margin-top:.2em;opacity:.85;text-shadow:none}
 .exp-pill:hover{background:rgba(170,70,20,.88)}
 .world-title{position:absolute;left:50%;top:17%;transform:translateX(-50%);text-align:center;width:min(92vw,640px);pointer-events:none;
   font:400 clamp(32px,6vmax,62px)/1 var(--display);letter-spacing:.03em;text-shadow:var(--outline);animation:wtitle 2.8s ease forwards}
@@ -317,11 +327,11 @@ kbd{display:inline-block;min-width:1.8em;text-align:center;font:700 13px/1 var(-
     <div class="menu-world">
       <button class="pill world-pill" id="worldBtn"><span class="lbl">Welt</span> <b id="menuWorld">Tropeninsel</b> <span class="chev" aria-hidden="true">›</span></button>
       <button class="pill world-pill exp-pill" id="expBtn" hidden></button>
-      <a class="pill world-pill d3-pill" href="3d/"><span class="lbl">Neu</span> <b>3D-Prototyp</b> <span class="chev" aria-hidden="true">›</span></a>
     </div>
   </div>
   <div></div>
   <div class="menu-actions">
+    <div class="mode-switch" role="group" aria-label="Version wählen"><span class="on" aria-current="true">2D<small>Klassisch</small></span><a href="3d/" id="to3d">3D<small>Neu</small></a></div>
     <button class="btn btn-play" id="playBtn">Surfen!</button>
     <div class="menu-row">
       <button class="btn btn-gold" id="shopBtn">Shop</button>
@@ -5374,10 +5384,7 @@ function installAppMeta() {
       x.drawImage(SPR.coin[0], 70, 70, 160, 160);
       x.font = "96px " + FONT_DISPLAY; x.textAlign = "center"; x.lineWidth = 16; x.strokeText("SURF", 300, 495); x.fillStyle = "#fff"; x.fillText("SURF", 300, 495);
     });
-    const url = c.toDataURL("image/png");
-    $("appIcon").href = url; $("favIcon").href = url;
-    const man = { name: "Surfers Surf", short_name: "Surfers Surf", display: "fullscreen", orientation: "any", background_color: "#0b5f86", theme_color: "#0b5f86", start_url: location.href.split("#")[0], icons: [{ src: url, sizes: "512x512", type: "image/png" }] };
-    const l = document.createElement("link"); l.rel = "manifest"; l.href = URL.createObjectURL(new Blob([JSON.stringify(man)], { type: "application/manifest+json" })); document.head.appendChild(l);
+    window.__appIcon = c; // feste Symbole liegen in icons/ (aus diesem Bild erzeugt)
   } catch (e) {}
 }
 async function boot() {
@@ -5390,6 +5397,7 @@ async function boot() {
   resize();
   installAppMeta();
   UI.init();
+  try { localStorage.setItem('surfersSurf.mode', '2d'); } catch (e) {}
   resetWorld();
   curPose = computePose(0);
   UI.toMenu();
