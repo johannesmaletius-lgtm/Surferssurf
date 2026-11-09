@@ -30,7 +30,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
 .hud[hidden]{display:none}
 .hud{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
 .pill{background:rgba(13,42,74,.72);border:2px solid rgba(255,255,255,.18);border-radius:999px;padding:.32em .9em .26em;font:600 clamp(16px,2.4vmax,24px)/1 var(--ui);display:flex;gap:.45em;align-items:center;backdrop-filter:blur(4px)}
-.coin{width:1em;height:1em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,#ffcc33 45%,#c98a12);box-shadow:inset 0 0 0 2px #a8700c}
+.coin,.coinfly{width:1em;height:1em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,#ffcc33 45%,#c98a12);box-shadow:inset 0 0 0 2px #a8700c}
+#coinPill{transform-origin:85% 50%}
+.coinfly{position:fixed;left:0;top:0;margin:-.5em 0 0 -.5em;font-size:clamp(16px,2.4vmax,24px);box-shadow:inset 0 0 0 2px #a8700c,0 0 0 2px #4a2a00,0 0 12px 2px rgba(255,214,80,.75);pointer-events:none;will-change:transform;z-index:4}
+.coinfly[hidden]{display:none}
 .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;background:radial-gradient(ellipse at center,rgba(5,30,60,.15),rgba(5,30,60,.55))}
 .screen[hidden]{display:none}
 h1{margin:0;font:400 clamp(44px,9vmin,96px)/.95 var(--display);letter-spacing:.02em;color:#fffef6;text-shadow:0 5px 0 var(--ink),0 0 0 var(--ink),3px 3px 0 var(--ink),-3px 3px 0 var(--ink),3px -3px 0 var(--ink),-3px -3px 0 var(--ink)}
@@ -50,7 +53,7 @@ a.link{color:#bff4ff;font-weight:600}
 .pop{position:fixed;left:0;top:0;font:400 clamp(22px,3.6vmin,38px)/1 var(--display);letter-spacing:.03em;text-shadow:0 3px 0 #0d2a4a,2px 2px 0 #0d2a4a,-2px 2px 0 #0d2a4a,2px -2px 0 #0d2a4a,-2px -2px 0 #0d2a4a;pointer-events:none;white-space:nowrap;will-change:transform}
 .hud{pointer-events:none}.pbtn{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:3px solid #0d2a4a;background:linear-gradient(#5fd0f2,#1b8fd6);display:flex;gap:6px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 0 #0d2a4a}
 .pbtn i{width:6px;height:18px;background:#fff;border-radius:2px;box-shadow:0 0 0 2px #0d2a4a}
-.worlds{display:flex;gap:10px}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
+.worlds{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}.wbtn{font:600 clamp(15px,2.2vmin,19px)/1 var(--ui);color:#fff;background:rgba(13,42,74,.6);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
 .wbtn.on{background:#ffd23f;color:#0d2a4a;border-color:#0d2a4a;box-shadow:0 3px 0 #0d2a4a}
 .best{font:600 clamp(16px,2.4vmin,22px)/1 var(--ui);color:#fff3b0}
 .mode-switch{display:inline-flex;gap:4px;padding:4px;border-radius:999px;background:rgba(10,22,38,.62);border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink)}
@@ -66,7 +69,7 @@ a.link{color:#bff4ff;font-weight:600}
 <button class="snd" id="snd" aria-label="Ton an/aus" title="Ton an/aus"></button>
 <div class="powbox" id="pow"></div>
 <div class="hud" id="hud" hidden>
-  <div class="pill"><span class="coin"></span><span id="coins">0</span></div>
+  <div class="pill" id="coinPill"><span class="coin"></span><span id="coins">0</span></div>
   <div class="pill"><span id="dist">0 m</span></div>
   <button class="pbtn" id="pauseBtn" aria-label="Pause"><i></i><i></i></button>
 </div>
@@ -74,7 +77,7 @@ a.link{color:#bff4ff;font-weight:600}
   <h1>Surfers Surf<small>3D</small></h1>
   <div class="mode-switch" role="group" aria-label="Version wählen"><a href="../" class="to2d">2D<small>Klassisch</small></a><span class="on" aria-current="true">3D<small>Neu</small></span></div>
   <p>Weich Felsen, Booten und Haien aus, spring über Treibholz, duck dich unter Stegen durch und flieg über Schanzen.</p>
-  <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button></div>
+  <div class="worlds"><button class="wbtn" data-w="mittag">☀️ Mittag</button><button class="wbtn" data-w="abend">🌅 Abend</button><button class="wbtn" data-w="canyon">🏜️ Canyon</button></div>
   <button class="btn" id="go">Los!</button>
   <p class="best" id="best"></p>
   <p class="hint">Pfeiltasten / WASD · Leertaste springt · auf dem Handy wischen</p>

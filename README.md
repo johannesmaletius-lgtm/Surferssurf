@@ -28,7 +28,10 @@ Steuerung: Pfeiltasten/WASD oder Wischen – links/rechts ausweichen, hoch sprin
 Wischen reagiert schon während der Bewegung; ein Sprung kurz vor der Landung wird gemerkt, Ducken in der Luft holt schnell runter.
 Hindernisse: Felsen, Treibholz und Schildkröten (springen), Felsbögen und Holzstege (ducken), Seezeichen-Tonnen,
 entgegenkommende Motorboote, pendelnde Haie (springen) und Sprungschanzen mit Münzbogen.
-Welten: Mittag und Abend (Auswahl im Startbildschirm). Power-ups: Magnet, Schutzblase, Drachen.
+Welten (Auswahl im Startbildschirm): Tropeninsel am Mittag und am Abend, dazu der **Canyon** – rote Felswände mit
+Gesteinsschichten, Wasserfälle, wackelige Hängebrücken (ducken!) und Tafelberge; im Fluss Treibholz statt Schildkröten.
+Power-ups: Magnet, Schutzblase, Drachen.
+Münzen: geprägte Goldtaler mit Glanzstreif; eingesammelt hüpfen sie über den Kopf, blitzen auf und fliegen in den Zähler.
 Ein Wisch wechselt genau eine Spur (zurückwischen geht ohne Absetzen).
 
 Flüssig auch auf älteren Geräten: Die Grafik stellt sich selbst ein (Stufe 2 mit Leuchten, 1 ohne, 0 zusätzlich mit
