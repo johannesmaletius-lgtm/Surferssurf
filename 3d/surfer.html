@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Surfers Surf – der Surfer</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:linear-gradient(#2a7fd4,#c4e8f5);font:600 15px/1.2 system-ui,sans-serif;color:#fff}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+.bar{position:fixed;left:0;right:0;bottom:max(14px,env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:0 10px}
+button{font:inherit;color:#fff;background:rgba(13,42,74,.7);border:2px solid rgba(255,255,255,.3);border-radius:999px;padding:.5em 1em;cursor:pointer}
+button.on{background:#ffd23f;color:#0d2a4a;border-color:#0d2a4a}
+h1{position:fixed;top:10px;left:14px;margin:0;font-size:20px;text-shadow:0 2px 0 rgba(13,42,74,.6)}
+a{position:fixed;top:12px;right:14px;color:#fff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<h1>Der Surfer</h1><a href="./">Zum Spiel</a>
+<div class="bar" id="bar"></div>
+<script type="module">
+import * as THREE from './vendor/three.min.js';
+import { loadSurfer } from './surfer.js';
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.toneMapping = THREE.NeutralToneMapping;
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+scene.add(new THREE.HemisphereLight('#cfeeff', '#1a6f8c', 1.15));
+const sun = new THREE.DirectionalLight('#fff1d6', 2.4); sun.position.set(3, 6, 4); scene.add(sun);
+const fill = new THREE.DirectionalLight('#9fd8ff', 0.9); fill.position.set(-4, 3, -6); scene.add(fill);
+const ramp = new THREE.DataTexture(new Uint8Array([70, 140, 205, 255]), 4, 1, THREE.RedFormat); ramp.minFilter = ramp.magFilter = THREE.NearestFilter; ramp.needsUpdate = true;
+const s = await loadSurfer('./models/surfer.glb', { gradientMap: ramp });
+scene.add(s.root);
+const deck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.06, 40).scale(1, 1, 3.2), new THREE.MeshToonMaterial({ color: '#f6ecd2', gradientMap: ramp }));
+deck.position.y = 0.06; scene.add(deck);
+const POSES = { Stehen: null, Surfen: {}, Kurve: { lean: 0.8 }, Ducken: { duck: 1 }, Sprung: { air: true, airT: 0.5 }, Shaka: { air: true, airT: 0.5, trick: 'shaka', trickT: 0.27 }, Grab: { air: true, airT: 0.5, trick: 'grab', trickT: 0.27 } };
+let cur = new URLSearchParams(location.search).get('pose') || 'Surfen', yaw = +(new URLSearchParams(location.search).get('yaw') || 0.6), auto = !new URLSearchParams(location.search).has('yaw');
+const bar = document.getElementById('bar');
+for (const k in POSES) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => { cur = k; sync(); }; bar.appendChild(b); }
+const sync = () => [...bar.children].forEach(b => b.classList.toggle('on', b.textContent === cur)); sync();
+let drag = null; canvas.onpointerdown = e => { drag = e.clientX; auto = false; }; onpointerup = () => drag = null;
+onpointermove = e => { if (drag !== null) { yaw -= (e.clientX - drag) * 0.01; drag = e.clientX; } };
+const dist = +(new URLSearchParams(location.search).get('dist') || 5.2), lookY = +(new URLSearchParams(location.search).get('y') || 1.0);
+let last = performance.now(), t = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt; if (auto) yaw += dt * 0.35;
+  const p = POSES[cur]; if (p) s.pose({ t, dt, ...p }); else s.rest();
+  const w = innerWidth, h = innerHeight; if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  camera.position.set(Math.sin(yaw) * dist, lookY + 0.35, Math.cos(yaw) * dist); camera.lookAt(0, lookY, 0);
+  renderer.render(scene, camera); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.viewer = { s, set: (k, y) => { cur = k; if (y !== undefined) { yaw = y; auto = false; } sync(); } };
+</script>
+</body>
+</html>
