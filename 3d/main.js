@@ -2,6 +2,7 @@
 import * as THREE from './vendor/three.min.js';
 import * as Sound from './sound.js';
 import { loadSurfer } from './surfer.js';
+import * as Shop from './shop.js';
 const { EffectComposer, RenderPass, UnrealBloomPass, OutputPass } = THREE;
 
 /* =========================================================================
@@ -368,6 +369,18 @@ function makeBoard() {
 // der Surfer: eigenes 3D-Modell (models/surfer.glb, gebaut von tools/build-surfer.mjs) mit Skelett
 const surfer = await loadSurfer('./models/surfer.glb', { gradientMap: toonRamp });
 const board = bakeOne(makeBoard());
+// Brett aus dem Shop: Deck-Bemalung (und bei Obsidian/Gold ein Leuchtbild) aufs Brett legen
+let boardMat = null; board.traverse(o => { if (o.material && o.material.map) boardMat = o.material; });
+const deckTexCache = new Map();
+function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; deckTexCache.set(c, t); } return t; }
+let boardInfo = Shop.getBoard(Shop.save.board);
+function applyBoard() {
+  boardInfo = Shop.getBoard(Shop.save.board); const { deck, glow } = Shop.deckCanvas(boardInfo);
+  boardMat.map = deckTex(deck); boardMat.emissiveMap = glow ? deckTex(glow) : null; boardMat.emissive.set(glow ? '#ffffff' : '#000000'); boardMat.emissiveIntensity = boardInfo.design === 'lava' ? 1.3 : 0.6; boardMat.needsUpdate = true;
+}
+applyBoard();
+// Farbe der Gischt am Brett (Regenbogenbrett: bunt)
+const sprayCol = () => boardInfo.trail === 'rainbow' ? Shop.RAINBOW[Math.floor(Math.random() * 6)] : boardInfo.trail === '#ffffff' ? (Math.random() < 0.3 ? '#c8f8ff' : '#ffffff') : (Math.random() < 0.5 ? boardInfo.trail : '#ffffff');
 const player = new THREE.Group(); // folgt Position + Wellenneigung
 player.add(board, surfer.root);
 scene.add(player);
@@ -800,7 +813,7 @@ function makeMesa(R, H, seed) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x), top = y > H - 0.01, rr = Math.hypot(x, z);
     const f = top ? 1 : 0.85 + fbm2(Math.cos(a) * 2 + seed, Math.sin(a) * 2 + y * 0.03) * 0.35;
     p.setXYZ(i, x * f, y, z * f);
-    c.copy(STRATA[Math.floor(y / H * 7 + seed) % 8]); if (top && rr > 0) c.lerp(new THREE.Color('#d9965c'), 0.4);
+    c.copy(STRATA[(Math.floor(Math.max(0, y) / H * 7) + seed) % 8]); if (top && rr > 0) c.lerp(new THREE.Color('#d9965c'), 0.4);
     cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(cols, 3)); g.computeVertexNormals();
@@ -1290,7 +1303,7 @@ const THEMES = {
     hemi: ['#ffe2c4', '#8a4a2a', 1.1], sun: ['#ffe2b6', 2.4], fill: ['#ffc4a0', 0.85], spec: 0.8, bloom: 0.3, ground: '#7a3a20', fogFar: 470 },
 };
 const THEME_KEY = 'surfersSurf3d.world';
-let themeId = 'mittag'; try { const t = localStorage.getItem(THEME_KEY); if (THEMES[t]) themeId = t; } catch (e) {}
+let themeId = 'mittag'; try { const t = localStorage.getItem(THEME_KEY); if (THEMES[t] && Shop.themeUnlocked(t)) themeId = t; } catch (e) {}
 function applyTheme(id) {
   const T = THEMES[id] || THEMES.mittag; themeId = THEMES[id] ? id : 'mittag';
   // Karte wechseln: Inseln, Berge, Delfine und Segelboote gegen Canyon-Wände und Tafelberge tauschen
@@ -1309,7 +1322,11 @@ function applyTheme(id) {
   document.body.style.background = T.horizon;
   buildEnv();
   try { localStorage.setItem(THEME_KEY, themeId); } catch (e) {}
-  document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('on', b.dataset.w === themeId));
+  syncWorldBtns();
+}
+function syncWorldBtns() {
+  document.querySelectorAll('.wbtn').forEach(b => { const lock = !Shop.themeUnlocked(b.dataset.w); b.classList.toggle('on', b.dataset.w === themeId); b.classList.toggle('lock', lock);
+    b.querySelector('.pr').textContent = lock ? `🔒 ${Shop.worldOf(b.dataset.w).price}` : ''; });
 }
 
 /* =========================================================================
@@ -1325,13 +1342,17 @@ function reset() {
   for (const o of obstacles) scene.remove(o.mesh, o.foam); obstacles.length = 0; coins.length = 0;
   for (const u of pickups) scene.remove(u.g); pickups.length = 0; pw.magnet = pw.shield = pw.kite = pw.grace = 0;
   Object.assign(P, { lane: 0, x: 0, fromX: 0, toX: 0, laneT: 1, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, duck: 0, duckBuf: false, jumpBuf: 0, bump: 0 });
-  kiteEndZ = null; runCoins = 0; clearFlyers(); startZ = P.z; nextRowZ = P.z - 45; recordShown = false; $('coins').textContent = '0';
+  kiteEndZ = null; runCoins = 0; runBanked = false; clearFlyers(); startZ = P.z; nextRowZ = P.z - 45; recordShown = false; $('coins').textContent = '0';
   surfer.root.rotation.set(0, 0, 0); surfer.root.position.set(0, 0, 0); board.rotation.set(0, 0, 0); board.position.set(0, 0, 0);
 }
+// eingesammelte Münzen aufs Konto (geteilt mit der 2D-Version)
+let runBanked = false;
+function bankCoins() { if (runBanked) return; runBanked = true; Shop.addCoins(runCoins); showBank(); }
+function showBank() { $('bank').textContent = Shop.save.coins.toLocaleString('de-DE'); }
 function pause() { if (state !== 'play') return; state = 'pause'; $('pause').hidden = false; }
 function resume() { if (state !== 'pause') return; state = 'play'; $('pause').hidden = true; last = performance.now(); canvas.focus(); }
 function showBest() { $('best').textContent = best > 0 ? `Rekord: ${best} m` : ''; }
-function start() { const first = state === 'ready'; reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
+function start() { const first = state === 'ready'; for (const k in PW) PW[k].dur = Shop.powerDur(k); reset(); state = 'play'; camBlendT = first ? 0 : 1; $('start').hidden = true; $('over').hidden = true; $('hud').hidden = false; canvas.focus(); Sound.init(); Sound.fx.start(); }
 const LANE_T = 0.15;           // Spurwechsel: kurz und knackig
 const JUMP_V = 11, RAMP_V = 13.5, GRAV = 30;
 // Schwerkraft mit kurzem Schweben am höchsten Punkt: Sprünge lesen sich klarer
@@ -1447,7 +1468,7 @@ function update(dt) {
     // Gischt an den Kanten des Bretts
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
-      for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), Math.random() < 0.3 ? '#c8f8ff' : '#ffffff'); }
+      for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), sprayCol()); }
       if (Math.random() < 0.6) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.4, P.y + 0.15, P.z + rand(0.3, 1), sd * rand(0.5, 1.5), rand(0.5, 1.2), rand(-P.speed * 0.2, 0), rand(0.5, 0.9), rand(0.25, 0.45), '#eafcff', 2); }
     }
     if (play) {
@@ -1465,7 +1486,8 @@ function update(dt) {
       const dist = Math.floor(startZ - P.z), rec = dist > best;
       if (rec) { best = dist; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
       $('overText').textContent = rec && dist > 20 ? 'Neuer Rekord!' : pick(['Platsch!', 'Wipeout!', 'Autsch!']);
-      $('overStats').textContent = `${dist} m · ${runCoins} Münzen · Rekord ${best} m`;
+      bankCoins();
+      $('overStats').innerHTML = `${dist} m · Rekord ${best} m<br><b class="gain">+${runCoins} Münzen</b> · Konto <b>${Shop.save.coins.toLocaleString('de-DE')}</b>`;
       $('over').hidden = false; $('hud').hidden = true; showBest();
     }
   }
@@ -1611,6 +1633,7 @@ function frame(now) {
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.key.toLowerCase();
+  if (!$('shop').hidden) { if (k === 'escape') { Shop.closeShop(); e.preventDefault(); } return; }
   if ((k === 'escape' || k === 'p') && (state === 'play' || state === 'pause')) { state === 'play' ? pause() : resume(); e.preventDefault(); return; }
   if (state === 'pause') { if (k === ' ' || k === 'enter') { resume(); e.preventDefault(); } return; }
   if (state !== 'play' && (k === ' ' || k === 'enter') && (state === 'ready' || !$('over').hidden)) { start(); e.preventDefault(); return; }
@@ -1651,11 +1674,16 @@ const endTouch = (e, tap) => {
 canvas.addEventListener('pointerup', e => endTouch(e, true));
 canvas.addEventListener('pointercancel', e => endTouch(e, false));
 $('go').addEventListener('click', start);
-document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); applyTheme(b.dataset.w); }));
+document.querySelectorAll('.wbtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); if (Shop.themeUnlocked(b.dataset.w)) applyTheme(b.dataset.w); else { Sound.init(); Shop.openShop('worlds'); } }));
+// Shop: Brett/Welt sofort am Surfer im Hintergrund zeigen
+Shop.initShop({ sound: Sound.fx, icons: ICON_URL, theme: () => themeId, selectTheme: id => applyTheme(id), onChange: () => { applyBoard(); showBank(); syncWorldBtns(); if (!Shop.themeUnlocked(themeId)) applyTheme('mittag'); } });
+$('shopBtn').addEventListener('click', e => { e.stopPropagation(); Sound.init(); Sound.fx.click(); Shop.openShop(); });
+$('overShop').addEventListener('click', e => { e.stopPropagation(); Sound.fx.click(); Shop.openShop(); });
+showBank();
 applyTheme(themeId);
 $('pauseBtn').addEventListener('click', e => { e.stopPropagation(); pause(); });
 $('resume').addEventListener('click', resume);
-$('quit').addEventListener('click', () => { $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
+$('quit').addEventListener('click', () => { bankCoins(); $('pause').hidden = true; state = 'ready'; reset(); $('hud').hidden = true; $('start').hidden = false; camBlendT = 0; showBest(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 showBest();
 const sndBtn = $('snd'), syncSnd = () => { sndBtn.className = 'snd ' + (Sound.isOn() ? 'on' : 'off'); };
@@ -1685,4 +1713,4 @@ resize();
 warmUp();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
+window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme, Shop, applyBoard };

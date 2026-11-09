@@ -1,7 +1,7 @@
 // Surfers Surf als Web-App: immer zuerst aus dem Netz laden (neueste Version), ohne Netz aus dem Zwischenspeicher
-const CACHE = 'surfers-surf-v2';
+const CACHE = 'surfers-surf-v3';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
-  './3d/', './3d/index.html', './3d/main.js', './3d/sound.js', './3d/surfer.js', './3d/rig.js', './3d/models/surfer.glb', './3d/vendor/three.min.js'];
+  './3d/', './3d/index.html', './3d/main.js', './3d/sound.js', './3d/shop.js', './3d/surfer.js', './3d/rig.js', './3d/models/surfer.glb', './3d/vendor/three.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
