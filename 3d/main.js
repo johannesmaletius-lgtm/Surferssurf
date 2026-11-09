@@ -1,7 +1,8 @@
 // Surfers Surf 3D – Prototyp mit Three.js (MIT, siehe vendor/LICENSE-three.txt)
 import * as THREE from './vendor/three.min.js';
 import * as Sound from './sound.js';
-const { EffectComposer, RenderPass, UnrealBloomPass, OutputPass, ShaderPass, FXAAShader } = THREE;
+import { loadSurfer } from './surfer.js';
+const { EffectComposer, RenderPass, UnrealBloomPass, OutputPass } = THREE;
 
 /* =========================================================================
    Grundlagen
@@ -15,14 +16,27 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 const smooth01 = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
 const TEST = /[?&]test\b/.test(location.search);
+const QUERY = new URLSearchParams(location.search);
 
 const LANE_W = 2.5, EDGE = 4.6;
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+// Kantenglättung direkt im Bildschirmpuffer: auf Handys (Kachel-Grafik) fast kostenlos
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
+
+/* ---------- Qualitätsstufen: Leuchten, Auflösung, Shader-Details passen sich dem Gerät an ----------
+   Stufe 2: mit Leuchten (Nachbearbeitung) · 1: direkt gezeichnet · 0: zusätzlich einfachere Shader, weniger Partikel */
+const COARSE = matchMedia('(pointer: coarse)').matches;
 const MAX_DPR = Math.min(window.devicePixelRatio || 1, 2);
-let pixelRatio = matchMedia('(pointer: coarse)').matches ? Math.min(MAX_DPR, 1.5) : MAX_DPR;
+const GPU_NAME = (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) { return ''; } })();
+const SOFTWARE_GL = /swiftshader|llvmpipe|software|basic render/i.test(GPU_NAME);
+const WEAK = SOFTWARE_GL || (navigator.deviceMemory && navigator.deviceMemory <= 3) || (COARSE && (navigator.hardwareConcurrency || 8) <= 4) || /Mali-[GT][0-7]\d\b|Adreno \(TM\) [3-5]\d\d|PowerVR/i.test(GPU_NAME);
+const LADDER = [[0, 0.7], [0, 0.85], [0, 1], [1, 1], [1, 1.25], [1, 1.5], [2, 1.5], [2, 2]].map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
+  .filter((l, i, a) => i === 0 || l[0] !== a[i - 1][0] || l[1] !== a[i - 1][1]);
+const levelFor = (t, d) => { let best = 0; LADDER.forEach(([lt, ld], i) => { if (lt <= t && ld <= d + 1e-6) best = i; }); return best; };
+let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1) : COARSE ? levelFor(1, 1.5) : levelFor(2, MAX_DPR);
+let tier = LADDER[qLevel][0], pixelRatio = LADDER[qLevel][1];
 renderer.setPixelRatio(pixelRatio);
 
 const scene = new THREE.Scene();
@@ -42,7 +56,12 @@ const skyMat = new THREE.ShaderMaterial({
   fragmentShader: `uniform vec3 uZenith, uHorizon, uSun, uSunCol, uCloud; uniform float uTime, uGlow; varying vec3 vDir;
     float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
-    float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++) { v += a * n2(p); p = p * 2.03 + 7.1; a *= .5; } return v; }
+    #ifdef LOWQ
+    #define OCT 3
+    #else
+    #define OCT 5
+    #endif
+    float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < OCT; i++) { v += a * n2(p); p = p * 2.03 + 7.1; a *= .5; } return v; }
     void main(){
       vec3 d = normalize(vDir); float h = d.y;
       vec3 col = mix(uHorizon, uZenith, pow(clamp(h, 0., 1.), .5));
@@ -54,11 +73,16 @@ const skyMat = new THREE.ShaderMaterial({
       vec2 uv = d.xz / max(h + .08, .06) * .55 + vec2(uTime * .004, 0.);
       float c = fbm(uv * 1.3);
       float cm = smoothstep(.58, .74, c) * smoothstep(.0, .2, h);
+      #ifdef LOWQ
+      float shade = smoothstep(.55, .95, c);
+      #else
       float shade = smoothstep(.5, .85, fbm(uv * 1.3 + vec2(.05, .09)));
+      #endif
       vec3 cc = mix(uCloud * 1.02, mix(uHorizon, uZenith, .25) * 1.02, shade * .55) + uSunCol * pow(sd, 6.) * .25 + uSunCol * pow(az, 4.) * uGlow * .3 * (1. - shade);
       col = mix(col, cc, cm * .9);
       col = mix(col, uHorizon, smoothstep(.06, -.02, h));
       gl_FragColor = vec4(col, 1.);
+      #include <tonemapping_fragment>
       #include <colorspace_fragment>
     }`,
   side: THREE.BackSide, depthWrite: false, fog: false,
@@ -91,6 +115,7 @@ buildEnv();
 /* =========================================================================
    Wellen: dieselben Gerstner-Wellen auf CPU (Brett, Bojen) und GPU (Wasser)
    ========================================================================= */
+const WAVE_SCALE = 0.8; // etwas weniger Welle
 const WAVES = [
   { d: [0.18, 1], A: 0.34, L: 24 },
   { d: [-0.62, 0.78], A: 0.17, L: 12.5 },
@@ -98,8 +123,8 @@ const WAVES = [
   { d: [-0.25, -1], A: 0.05, L: 4.4 },
   { d: [1, 0.12], A: 0.035, L: 2.9 },
   { d: [-0.7, -0.7], A: 0.022, L: 1.7 },
-].map(w => { const l = Math.hypot(w.d[0], w.d[1]), k = TAU / w.L; return { dx: w.d[0] / l, dz: w.d[1] / l, A: w.A, k, c: Math.sqrt(9.81 / k), Q: 0 }; });
-WAVES.forEach(w => { w.Q = 0.62 / (w.k * w.A * WAVES.length); });
+].map(w => { const l = Math.hypot(w.d[0], w.d[1]), k = TAU / w.L; return { dx: w.d[0] / l, dz: w.d[1] / l, A: w.A * WAVE_SCALE, A0: w.A, k, c: Math.sqrt(9.81 / k), Q: 0 }; });
+WAVES.forEach(w => { w.Q = 0.62 / (w.k * w.A0 * WAVES.length); }); // Steilheit sinkt mit der Höhe: sanftere Kämme
 let time = 0;
 // Gerstner verschiebt Wasser auch seitlich: Ausgangspunkt suchen, dessen verschobene Lage (x, z) trifft
 function waveH(x, z, n = 5) {
@@ -121,11 +146,11 @@ function waveN(x, z, out = _n) {
 }
 
 /* ---------- Wasserfläche: dichtes Gitter nah, grobes fern; Licht pro Pixel ---------- */
-function waterGeometry() {
+function waterGeometry(st = 0.5) {
   const xs = [], zs = [];
-  for (let x = -30; x <= 30; x += 0.5) xs.push(x);
+  for (let x = -30; x <= 30 + 1e-6; x += st) xs.push(x);
   for (let i = 1, x = 30; i <= 26; i++) { x += 0.5 * Math.pow(1.22, i); xs.push(x); xs.unshift(-x); }
-  for (let z = 22; z >= -70; z -= 0.5) zs.push(z);
+  for (let z = 22; z >= -70 - 1e-6; z -= st) zs.push(z);
   for (let i = 1, z = -70; i <= 34; i++) { z -= 0.5 * Math.pow(1.17, i); zs.push(z); }
   const pos = new Float32Array(xs.length * zs.length * 3); let p = 0;
   for (const z of zs) for (const x of xs) { pos[p++] = x; pos[p++] = 0; pos[p++] = z; }
@@ -172,8 +197,10 @@ const waterMat = new THREE.ShaderMaterial({
         n.x -= w.x * wa * cos(f); n.z -= w.y * wa * cos(f); n.y -= uQ[i] * wa * sin(f); }
       // feine Kräuselung, nur in der Nähe
       float near = 1. - smoothstep(8., 40., length(vWorld - uCam));
+      #ifndef LOWQ
       vec2 q = xz * 1.7 + vec2(uTime * .35, uTime * .8);
       n.xz += (vec2(noise(q), noise(q + 17.3)) - .5) * .12 * near;
+      #endif
       n = normalize(n);
       vec3 V = normalize(uCam - vWorld);
       float ndv = max(dot(n, V), 0.);
@@ -196,8 +223,12 @@ const waterMat = new THREE.ShaderMaterial({
       float sp = max(dot(R, uSun), 0.);
       col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05) * uSpec;
       // Schaum auf hohen Kämmen
+      #ifdef LOWQ
+      float fn = noise(xz * .9 + uTime * .2), lace = noise(xz * 2.2 + vec2(uTime * .3, 0.));
+      #else
       float fn = noise(xz * .9 + uTime * .2) * .6 + noise(xz * 2.3 - uTime * .3) * .4;
       float lace = noise(xz * 2.2 + vec2(uTime * .3, 0.)) * .6 + noise(xz * 4.7 - vec2(0., uTime * .4)) * .4;
+      #endif
       float foam = smoothstep(.9, 1.06, h + fn * .16) * smoothstep(.42, .78, lace) * near;
       col = mix(col, vec3(.9, .97, 1.), foam * .42);
       // Brandung: Schaumsaum am Strand, läuft in Wellen an
@@ -213,7 +244,8 @@ const waterMat = new THREE.ShaderMaterial({
       #include <colorspace_fragment>
     }`,
 });
-const water = new THREE.Mesh(waterGeometry(), waterMat);
+const water = new THREE.Mesh(waterGeometry(tier === 0 ? 0.75 : 0.5), waterMat);
+water.userData.st = tier === 0 ? 0.75 : 0.5;
 water.frustumCulled = false;
 scene.add(water);
 
@@ -242,99 +274,68 @@ function withOutline(mesh, th = 0.022) {
 }
 
 /* =========================================================================
-   Der Surfer: Gelenkpunkte pro Bild berechnet, Glieder dazwischen ausgerichtet
+   Statische Gruppen backen: alle Teile mit gleichem Material zu einem Mesh zusammenfassen.
+   Spart hunderte Zeichenaufrufe (Inseln, Hindernisse, Tiere) – wichtig für ältere Geräte.
+   Teile mit userData.keep bleiben beweglich (Flossen, Flügel, winkender Arm).
    ========================================================================= */
-const KAI = { skin: '#eaa979', shirt: '#ff6a3d', shirtL: '#fff4e6', shorts: '#1f43a0', shortsL: '#ffd23f', cap: '#ffd23f', brim: '#1f43a0', hair: '#f4c95d', hairD: '#d39a2a' };
-const UP = new THREE.Vector3(0, 1, 0);
-function limb(r, len, mat) {
-  const g = new THREE.CapsuleGeometry(r, len, 6, 12);
-  const m = withOutline(new THREE.Mesh(g, mat), 0.018); m.userData.len = len; return m;
+const OUTLINE_BAKED = OUTLINE.clone(); OUTLINE_BAKED.uniforms.uTh.value = 0;
+const isOutline = m => m && m.isShaderMaterial && m.uniforms && m.uniforms.uTh && m.vertexShader === OUTLINE.vertexShader;
+// Cartoon-Materialien, die sich nur in der Farbe unterscheiden, werden eins – die Farbe wandert in die Eckpunkte
+const VC_MATS = new Map();
+function vcMaterial(m) {
+  const key = [m.map ? m.map.uuid : '', m.alphaTest, m.side, m.transparent, m.opacity, m.wireframe, m.gradientMap ? m.gradientMap.uuid : '', m.fog].join('|');
+  let v = VC_MATS.get(key);
+  if (!v) { v = new THREE.MeshToonMaterial({ vertexColors: true, map: m.map, alphaTest: m.alphaTest, side: m.side, transparent: m.transparent, opacity: m.opacity, wireframe: m.wireframe, gradientMap: m.gradientMap, fog: m.fog }); VC_MATS.set(key, v); }
+  return v;
 }
-function place(mesh, a, b) {
-  mesh.position.copy(a).add(b).multiplyScalar(0.5);
-  const dir = _v1.copy(b).sub(a); const l = dir.length();
-  if (l > 1e-5) mesh.quaternion.setFromUnitVectors(UP, dir.multiplyScalar(1 / l));
-}
-const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-// Zwei-Glied-IK: Knie/Ellbogen-Position aus Start, Ziel, Gliedlängen und Beugerichtung
-function ik(a, t, l1, l2, bend, out) {
-  const d = _v2.copy(t).sub(a); let len = d.length(); const maxL = (l1 + l2) * 0.999;
-  if (len > maxL) { d.multiplyScalar(maxL / len); len = maxL; t = _v3.copy(a).add(d); }
-  const x = (l1 * l1 - l2 * l2 + len * len) / (2 * len), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
-  const dn = d.clone().normalize(); const side = bend.clone().sub(dn.clone().multiplyScalar(bend.dot(dn))).normalize();
-  return out.copy(a).addScaledVector(dn, x).addScaledVector(side, h);
-}
-const Z_AXIS = new THREE.Vector3(0, 0, 1);
-const _mb = new THREE.Matrix4(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3();
-// Glied mit voller Ausrichtung: Längsachse a→b, Querachse entlang „side“ (für nicht runde Teile wie den Oberkörper)
-function placeBasis(mesh, a, b, side) {
-  mesh.position.copy(a).add(b).multiplyScalar(0.5);
-  _by.copy(b).sub(a).normalize(); _bx.copy(side).addScaledVector(_by, -side.dot(_by)).normalize(); _bz.crossVectors(_bx, _by);
-  _mb.makeBasis(_bx, _by, _bz); mesh.quaternion.setFromRotationMatrix(_mb);
-}
-function suitTexture() {
-  // Lycra-Shirt oben, Boardshorts unten; u = 0 / 1 ist der Rücken (zur Kamera)
-  const c = document.createElement('canvas'); c.width = 256; c.height = 256; const x = c.getContext('2d');
-  x.fillStyle = KAI.shirt; x.fillRect(0, 0, 256, 256);
-  for (const u of [64, 192]) { x.fillStyle = KAI.shirtL; x.fillRect(u - 10, 20, 20, 180); }
-  // Sonne als Logo auf dem Rücken (über die Naht gezeichnet, damit sie ganz bleibt)
-  for (const u of [0, 256]) {
-    x.fillStyle = KAI.shirtL; x.beginPath(); x.arc(u, 92, 30, 0, TAU); x.fill();
-    x.fillStyle = KAI.shortsL; x.beginPath(); x.arc(u, 92, 22, 0, TAU); x.fill();
-    x.strokeStyle = KAI.shirtL; x.lineWidth = 5; for (let i = 0; i < 10; i++) { const a = i / 10 * TAU; x.beginPath(); x.moveTo(u + Math.cos(a) * 34, 92 + Math.sin(a) * 34); x.lineTo(u + Math.cos(a) * 44, 92 + Math.sin(a) * 44); x.stroke(); }
-  }
-  // Boardshorts mit Bund und Seitenstreifen
-  x.fillStyle = KAI.shorts; x.fillRect(0, 196, 256, 60);
-  x.fillStyle = KAI.shortsL; x.fillRect(0, 196, 256, 8);
-  for (const u of [64, 192]) x.fillRect(u - 6, 204, 12, 52);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-function makeSurfer() {
-  const root = new THREE.Group();
-  const M = { skin: toon(KAI.skin), skinD: toon('#d08a5a'), shirt: toon(KAI.shirt), shirtL: toon(KAI.shirtL), shorts: toon(KAI.shorts), shortsL: toon(KAI.shortsL), cap: toon(KAI.cap), brim: toon(KAI.brim), hair: toon(KAI.hair), hairD: toon(KAI.hairD), ink: new THREE.MeshBasicMaterial({ color: '#141a24' }) };
-  // Oberkörper: tailliert, breite Schultern, vorne/hinten etwas flacher
-  const prof = [[0.001, -0.31], [0.12, -0.3], [0.17, -0.25], [0.178, -0.13], [0.162, -0.02], [0.185, 0.1], [0.212, 0.2], [0.205, 0.27], [0.16, 0.32], [0.08, 0.35], [0.001, 0.356]].map(([r, y]) => new THREE.Vector2(r, y));
-  const torsoGeo = new THREE.LatheGeometry(prof, 28); torsoGeo.scale(1, 1, 0.8);
-  const torso = withOutline(new THREE.Mesh(torsoGeo, toon('#ffffff', { map: suitTexture() })), 0.018);
-  const hand = () => { const h = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 10), M.skin), 0.014); h.geometry = h.geometry.clone().scale(0.85, 0.72, 1.2); h.children[0].geometry = h.geometry;
-    const th = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), M.skin); th.position.set(0.05, 0.02, -0.02); h.add(th); return h; };
-  const foot = () => { const g = new THREE.CapsuleGeometry(0.058, 0.16, 4, 10); g.rotateX(Math.PI / 2); g.scale(1, 0.7, 1); return withOutline(new THREE.Mesh(g, M.skin), 0.014); };
-  const parts = {
-    torso, hips: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.205, 16, 12).scale(1, 0.85, 0.9), M.shorts), 0.018),
-    // weite Boardshorts bis zum Knie, darunter nackte Beine
-    thighL: limb(0.112, 0.32, M.shorts), thighR: limb(0.112, 0.32, M.shorts), shinL: limb(0.074, 0.37, M.skin), shinR: limb(0.074, 0.37, M.skin),
-    upL: limb(0.072, 0.23, M.shirt), upR: limb(0.072, 0.23, M.shirt), loL: limb(0.054, 0.22, M.skin), loR: limb(0.054, 0.22, M.skin),
-    handL: hand(), handR: hand(), footL: foot(), footR: foot(),
-    neck: limb(0.062, 0.07, M.skin),
-    shoulderL: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.087, 12, 10), M.shirt), 0.016), shoulderR: withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.087, 12, 10), M.shirt), 0.016),
+function bake(root) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), buckets = new Map(), kept = [];
+  const rel = new THREE.Matrix4(), nm = new THREE.Matrix3(), p = new THREE.Vector3(), n = new THREE.Vector3();
+  const take = (mesh, geo, mat, start, count) => {
+    const outline = isOutline(mat), th = outline ? mat.uniforms.uTh.value : 0, toonVC = !outline && mat.isMeshToonMaterial;
+    const key = outline ? OUTLINE_BAKED : toonVC ? vcMaterial(mat) : mat, mc = toonVC ? mat.color : null;
+    rel.multiplyMatrices(inv, mesh.matrixWorld); nm.getNormalMatrix(rel); const flip = rel.determinant() < 0;
+    const pa = geo.attributes.position, na = geo.attributes.normal, ua = geo.attributes.uv, ca = geo.attributes.color, idx = geo.index;
+    const cnt = count ?? (idx ? idx.count : pa.count), st = start || 0;
+    const piece = { pos: [], nrm: [], uv: ua ? [] : null, col: ca || mc ? [] : null };
+    const order = flip ? [0, 2, 1] : [0, 1, 2];
+    for (let k = 0; k + 2 < cnt; k += 3) for (const o of order) {
+      const j = idx ? idx.getX(st + k + o) : st + k + o;
+      p.fromBufferAttribute(pa, j); n.fromBufferAttribute(na, j);
+      if (th) p.addScaledVector(n, th);
+      p.applyMatrix4(rel); n.applyMatrix3(nm).normalize();
+      piece.pos.push(p.x, p.y, p.z); piece.nrm.push(n.x, n.y, n.z);
+      if (ua) piece.uv.push(ua.getX(j), ua.getY(j));
+      if (mc) piece.col.push(mc.r * (ca ? ca.getX(j) : 1), mc.g * (ca ? ca.getY(j) : 1), mc.b * (ca ? ca.getZ(j) : 1));
+      else if (ca) piece.col.push(ca.getX(j), ca.getY(j), ca.getZ(j));
+    }
+    if (!buckets.has(key)) buckets.set(key, []); buckets.get(key).push(piece);
   };
-  for (const k of ['thighL', 'thighR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.022, 6, 18), M.shortsL); b.rotation.x = Math.PI / 2; b.position.y = -0.2; parts[k].add(b); }
-  for (const k of ['upL', 'upR']) { const b = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.018, 6, 14), M.shirtL); b.rotation.x = Math.PI / 2; b.position.y = -0.13; parts[k].add(b); }
-  // Kopf: Gesicht schaut nach -Z (Fahrtrichtung)
-  const head = new THREE.Group();
-  const skull = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.155, 22, 16).scale(0.95, 1.08, 1), M.skin), 0.016); head.add(skull);
-  for (const sd of [-1, 1]) {
-    const ear = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8).scale(0.6, 1, 0.9), M.skin), 0.01); ear.position.set(sd * 0.148, -0.01, 0.01); head.add(ear);
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), M.ink); eye.position.set(sd * 0.055, 0.015, -0.14); head.add(eye);
+  const walk = o => {
+    if (o !== root && o.userData.keep) { kept.push(o); return; }
+    if (o.isMesh && !o.isInstancedMesh && o.geometry.attributes.normal) {
+      const g = o.geometry;
+      if (Array.isArray(o.material)) for (const gr of g.groups) take(o, g, o.material[gr.materialIndex], gr.start, gr.count);
+      else take(o, g, o.material);
+    } else if (o !== root && !o.isGroup && !o.isMesh) { kept.push(o); return; }
+    for (const c of o.children) walk(c);
+  };
+  walk(root);
+  for (const k of kept) { k.updateMatrixWorld(true); rel.multiplyMatrices(inv, k.matrixWorld); k.removeFromParent(); rel.decompose(k.position, k.quaternion, k.scale); }
+  while (root.children.length) root.remove(root.children[0]);
+  for (const [mat, pieces] of buckets) {
+    const useUv = pieces.every(q => q.uv), useCol = pieces.every(q => q.col), cat = k => new Float32Array(pieces.flatMap(q => q[k]));
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(cat('pos'), 3)); g.setAttribute('normal', new THREE.BufferAttribute(cat('nrm'), 3));
+    if (useUv) g.setAttribute('uv', new THREE.BufferAttribute(cat('uv'), 2)); if (useCol) g.setAttribute('color', new THREE.BufferAttribute(cat('col'), 3));
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, mat); if (mat === OUTLINE_BAKED) m.raycast = () => {}; root.add(m);
   }
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), M.skinD); nose.position.set(0, -0.025, -0.155); head.add(nose);
-  // kurze Haare schauen nur unten im Nacken und über den Ohren unter der Kappe hervor
-  const hairBack = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.163, 18, 8, -Math.PI * 0.1, Math.PI * 1.2, Math.PI * 0.42, Math.PI * 0.26), M.hair), 0.012); hairBack.position.set(0, 0.0, 0.01); head.add(hairBack);
-  for (let i = 0; i < 3; i++) { const t = withOutline(new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 6), i === 1 ? M.hairD : M.hair), 0.008); t.position.set((i - 1) * 0.06, -0.07, 0.15); t.rotation.set(2.6, 0, (i - 1) * 0.4); head.add(t); }
-  // Basecap: Kuppel aus sechs Bahnen, Knopf oben, Schirm nach vorn, Verschluss hinten
-  const cap = new THREE.Group(); cap.position.y = 0.035; cap.rotation.x = -0.12; head.add(cap);
-  const crown = withOutline(new THREE.Mesh(new THREE.SphereGeometry(0.172, 24, 12, 0, TAU, 0, Math.PI * 0.5).scale(1, 0.82, 1.06), M.cap), 0.014); cap.add(crown);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.173, 0.175, 0.03, 24, 1, true).scale(1, 1, 1.06), M.brim); band.position.y = 0.012; cap.add(band);
-  for (let i = 0; i < 3; i++) { const seam = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.004, 4, 24, Math.PI), M.brim); seam.scale.set(1, 0.82, 1.06); seam.rotation.y = i * Math.PI / 3; cap.add(seam); }
-  const btn = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), M.brim); btn.position.y = 0.14; cap.add(btn);
-  const brimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.02, 24, 1, false, Math.PI / 2, Math.PI); brimGeo.scale(1.08, 1, 1.45);
-  const brim = withOutline(new THREE.Mesh(brimGeo, M.brim), 0.012); brim.position.set(0, 0.01, -0.105); brim.rotation.x = 0.12; cap.add(brim);
-  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 6, 12, Math.PI), M.brim); strap.position.set(0, 0.012, 0.178); cap.add(strap);
-  const logo = new THREE.Mesh(new THREE.CircleGeometry(0.045, 16), M.shirt); logo.position.set(0, 0.075, -0.16); logo.rotation.set(0.55, Math.PI, 0); cap.add(logo);
-  parts.head = head;
-  for (const k in parts) root.add(parts[k]);
-  return { root, parts };
+  for (const k of kept) root.add(k);
+  return root;
 }
+const bakeOne = mesh => bake(new THREE.Group().add(mesh));
 
 /* ---------- Surfbrett: Umriss extrudiert, runde Kanten, Deck mit Streifen ---------- */
 function makeBoard() {
@@ -360,8 +361,9 @@ function makeBoard() {
   return m;
 }
 
-const surfer = makeSurfer();
-const board = makeBoard();
+// der Surfer: eigenes 3D-Modell (models/surfer.glb, gebaut von tools/build-surfer.mjs) mit Skelett
+const surfer = await loadSurfer('./models/surfer.glb', { gradientMap: toonRamp });
+const board = bakeOne(makeBoard());
 const player = new THREE.Group(); // folgt Position + Wellenneigung
 player.add(board, surfer.root);
 scene.add(player);
@@ -372,57 +374,17 @@ const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.6), new THREE.MeshBas
 blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 
 /* =========================================================================
-   Posen
+   Posen (die eigentliche Haltung rechnet surfer.js)
    ========================================================================= */
 const P = { x: 0, lane: 0, fromX: 0, toX: 0, laneT: 1, z: 0, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, trickT: 0, flinch: 0, duck: 0 };
-const SEC = { hx: 0, hvx: 0, hy: 0, hvy: 0 };
-const J = {}; ['hip', 'chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'hdL', 'hdR', 'knL', 'knR', 'ftL', 'ftR', 'hpL', 'hpR'].forEach(k => J[k] = new THREE.Vector3());
+const UP = new THREE.Vector3(0, 1, 0);
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const poseState = { t: 0, dt: 0, lean: 0, air: false, airT: 0, kite: false, landT: 0, duck: 0, trick: null, trickT: 0 };
 function pose(t, dt) {
-  const pump = Math.sin(t * 3.2);
-  let crouch = 0.42 + pump * 0.04, lean = P.lean, armA = 0.95, armUp = 0, tuck = 0;
-  if (P.air) { const k = smooth01((P.airT - 0.05) / 0.25); crouch = lerp(0.2, 0.75, k); tuck = k; armUp = 0.6; }
-  if (pw.kite > 0 && state === 'play') { crouch = 0.25 + Math.sin(t * 2) * 0.05; tuck = 0; }
-  if (P.landT > 0) { const ph = 1 - P.landT / 0.34, c = Math.exp(-ph * 4.2) * Math.cos(ph * 7.5) * smooth01(P.landT / 0.06); crouch += 0.45 * c; armUp -= 0.3 * c; }
-  crouch += Math.abs(lean) * 0.18;
-  const dk = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0;
-  crouch = lerp(crouch, 1.2, dk);
-  // Füße stehen fest auf dem Brett (Regular: linker Fuß vorne)
-  J.ftL.set(0.02, 0.12, -0.42); J.ftR.set(-0.02, 0.12, 0.36);
-  const hipY = 1.02 - crouch * 0.42;
-  J.hip.set(0.05 - lean * 0.12, hipY, -0.03);
-  // Oberkörper: seitlich zur Fahrtrichtung, beugt sich vor und in die Kurve
-  const fwd = 0.25 + crouch * 0.35 + tuck * 0.2 + dk * 0.55;
-  const tilt = lean * 0.35 + Math.sin(t * 1.1) * 0.03;
-  J.chest.set(J.hip.x + Math.sin(tilt) * 0.5 + fwd * 0.12, J.hip.y + Math.cos(tilt) * 0.5 * (1 - fwd * 0.25), J.hip.z - fwd * 0.2);
-  J.neck.copy(J.chest).add(_v1.set(Math.sin(tilt) * 0.12, 0.13, -0.03));
-  J.head.copy(J.neck).add(_v1.set(Math.sin(tilt) * 0.06, 0.16, -0.05));
-  J.hpL.set(J.hip.x, J.hip.y - 0.05, J.hip.z - 0.12); J.hpR.set(J.hip.x, J.hip.y - 0.05, J.hip.z + 0.12);
-  J.shL.copy(J.chest).add(_v1.set(-0.21, -0.02, -0.09)); J.shR.copy(J.chest).add(_v1.set(0.21, -0.02, 0.09));
-  // Arme balancieren: seitlich ausgestreckt, äußerer Arm in der Kurve höher
-  const sway = Math.sin(t * 1.9) * 0.08;
-  const aL = armA + armUp + lean * 0.7 + sway + SEC.hx * 0.2, aR = armA + armUp - lean * 0.7 - sway - SEC.hx * 0.2;
-  J.hdL.copy(J.shL).add(_v1.set(-0.5 - Math.cos(aL) * 0.06 + tuck * 0.15, -0.3 + (aL - 0.95) * 0.45, -0.1 + tuck * 0.05));
-  J.hdR.copy(J.shR).add(_v1.set(0.5 + Math.cos(aR) * 0.06 - tuck * 0.15, -0.3 + (aR - 0.95) * 0.45, 0.04 + tuck * 0.05));
-  if (pw.kite > 0 && state === 'play') { J.hdL.copy(J.shL).add(_v1.set(-0.18, 0.52, -0.05)); J.hdR.copy(J.shR).add(_v1.set(0.18, 0.52, 0.05)); }
-  if (dk > 0) { J.hdL.lerp(_v1.set(-0.32, 0.42, -0.62), dk); J.hdR.lerp(_v2.set(0.32, 0.38, -0.3), dk); }
-  if (P.trick === 'grab' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdL.lerp(_v1.set(0.3, 0.2, -0.1), w); }
-  if (P.trick === 'shaka' && P.air) { const w = Math.sin(clamp(P.trickT / 0.55, 0, 1) * Math.PI); J.hdR.lerp(_v1.copy(J.shR).add(_v2.set(0.05, 0.55, 0.15)), w); }
-  ik(J.hpL, J.ftL, 0.46, 0.46, _v1.set(1, 0.2, -0.3), J.knL);
-  ik(J.hpR, J.ftR, 0.46, 0.46, _v1.set(1, 0.2, 0.3), J.knR);
-  ik(J.shL, J.hdL, 0.31, 0.28, _v1.set(0, 0.35, 1), J.elL);
-  ik(J.shR, J.hdR, 0.31, 0.28, _v1.set(0, 0.35, 1), J.elR);
-  const p = surfer.parts;
-  placeBasis(p.torso, _v3.copy(J.hip).lerp(J.chest, -0.04), _v2.copy(J.chest).lerp(J.hip, -0.06), _v1.copy(J.shR).sub(J.shL)); p.hips.position.copy(J.hip); p.hips.quaternion.copy(p.torso.quaternion);
-  p.shoulderL.position.copy(J.shL); p.shoulderR.position.copy(J.shR);
-  place(p.neck, J.chest, J.head);
-  place(p.thighL, J.hpL, J.knL); place(p.shinL, J.knL, J.ftL); place(p.thighR, J.hpR, J.knR); place(p.shinR, J.knR, J.ftR);
-  place(p.upL, J.shL, J.elL); place(p.loL, J.elL, J.hdL); place(p.upR, J.shR, J.elR); place(p.loR, J.elR, J.hdR);
-  p.handL.position.copy(J.hdL); p.handR.position.copy(J.hdR);
-  p.handL.quaternion.setFromUnitVectors(Z_AXIS, _v1.copy(J.hdL).sub(J.elL).normalize()); p.handR.quaternion.setFromUnitVectors(Z_AXIS, _v1.copy(J.hdR).sub(J.elR).normalize());
-  p.footL.position.copy(J.ftL).y -= 0.06; p.footR.position.copy(J.ftR).y -= 0.06; p.footL.rotation.y = 0.5; p.footR.rotation.y = 0.5;
-  p.head.position.copy(J.head); p.head.rotation.set(-0.1, -lean * 0.2, -tilt * 0.6);
-  // Arme federn der Kurvenbewegung hinterher
-  SEC.hvx += ((-lean * 0.9 - SEC.hx) * 55 - SEC.hvx * 5.5) * dt; SEC.hx += SEC.hvx * dt;
+  const st = poseState;
+  st.t = t; st.dt = dt; st.lean = P.lean; st.air = P.air; st.airT = P.airT; st.kite = pw.kite > 0 && state === 'play'; st.landT = P.landT;
+  st.duck = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0; st.trick = P.trick; st.trickT = P.trickT;
+  surfer.pose(st);
 }
 
 /* =========================================================================
@@ -480,7 +442,7 @@ function makeIsland(seed) {
   return g;
 }
 const islands = [];
-for (let i = 0; i < 12; i++) { const isl = makeIsland(i); isl.userData.side = i % 2 ? 1 : -1; isl.userData.r = isl.userData.r || 7; isl.position.set(isl.userData.side * rand(16, 30), -0.25, -i * 38 - rand(20)); islands.push(isl); scene.add(isl); }
+for (let i = 0; i < 12; i++) { const isl = bake(makeIsland(i)); isl.userData.side = i % 2 ? 1 : -1; isl.userData.r = isl.userData.r || 7; isl.position.set(isl.userData.side * rand(16, 30), -0.25, -i * 38 - rand(20)); islands.push(isl); scene.add(isl); }
 
 // ferne Berginseln: verrauschte Kegel mit Strand am Fuß, Dschungel und Fels (wandern mit der Kamera = wirken weit weg)
 const hash2 = (x, y) => { const s2 = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s2 - Math.floor(s2); };
@@ -551,7 +513,7 @@ const OBS_TYPES = {
   ramp: { w: 2.4, d: 4.0, h: 0, ramp: true },
 };
 const obstacles = [];
-const ROCKS = [0, 1, 2, 3].map(s => makeRockMesh(100 + s, 1.25, 1.8, 1.1, true));
+const ROCKS = [0, 1, 2, 3].map(s => bakeOne(makeRockMesh(100 + s, 1.25, 1.8, 1.1, true)));
 const LOG = (() => { const g = new THREE.Group(); const body = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 2.3, 12), toon('#8a5a32')), 0.03); body.rotation.z = Math.PI / 2; g.add(body);
   for (const sd of [-1, 1]) { const end = new THREE.Mesh(new THREE.CircleGeometry(0.32, 14), toon('#e0b47a')); end.position.x = sd * 1.16; end.rotation.y = sd * Math.PI / 2; g.add(end); }
   const br = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.7, 6), toon('#7a4e2a')), 0.02); br.position.set(0.4, 0.35, 0); br.rotation.z = -0.6; g.add(br); return g; })();
@@ -591,7 +553,7 @@ function makeTurtle() {
   for (const sd of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: '#141a24' })); e.position.set(sd * 0.13, 0.17, -1.2); g.add(e); }
   const fl = [];
   for (const [sx, sz, big] of [[-1, -0.55, 1], [1, -0.55, 1], [-1, 0.6, 0], [1, 0.6, 0]]) {
-    const piv = new THREE.Group(); piv.position.set(sx * 0.7, 0, sz); g.add(piv);
+    const piv = new THREE.Group(); piv.position.set(sx * 0.7, 0, sz); piv.userData.keep = true; g.add(piv);
     const f = withOutline(new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6).scale(big ? 0.45 : 0.25, 0.05, big ? 0.18 : 0.14), skin), 0.015); f.position.x = sx * (big ? 0.38 : 0.2); piv.add(f);
     fl.push({ piv, sx, big });
   }
@@ -623,10 +585,10 @@ const BOAT = (() => {
   const hat = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.3, 0.12, 16), toon('#f4e2a4')), 0.015); hat.position.y = 0.6; drv.add(hat);
   for (const sd of [-1, 1]) { const gl = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.03), new THREE.MeshBasicMaterial({ color: '#141a24' })); gl.position.set(sd * 0.06, 0.47, 0.16); drv.add(gl); }
   const arm = withOutline(new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.32, 4, 8), toon('#c98a5e')), 0.012); arm.geometry = arm.geometry.clone().translate(0, 0.2, 0); arm.children[0].geometry = arm.geometry;
-  arm.position.set(0.2, 0.18, 0); arm.name = 'arm'; drv.add(arm);
+  arm.position.set(0.2, 0.18, 0); arm.name = 'arm'; arm.userData.keep = true; drv.add(arm);
   const motor = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.7, 0.4), toon('#2b2f38')), 0.02); motor.position.set(0, 0.55, -2.05); g.add(motor);
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 6), toon('#e8e2d4')); pole.position.set(-0.6, 1.1, -1.6); g.add(pole);
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3), toon('#ffcc33', { side: THREE.DoubleSide })); flag.position.set(-0.6, 1.5, -1.85); flag.rotation.y = Math.PI / 2; flag.name = 'flag'; g.add(flag);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3), toon('#ffcc33', { side: THREE.DoubleSide })); flag.position.set(-0.6, 1.5, -1.85); flag.rotation.y = Math.PI / 2; flag.name = 'flag'; flag.userData.keep = true; g.add(flag);
   return g;
 })();
 // Hai: Rückenflosse zieht zwischen zwei Spuren hin und her – drüberspringen
@@ -689,15 +651,17 @@ const RAMP = (() => {
   }
   return g;
 })();
+[LOG, ARCH, TURTLE, BOAT, SHARK, BUOY, JETTY, RAMP].forEach(g => bake(g));
 const OBS_MESH = { rock: () => pick(ROCKS).clone(), log: () => LOG.clone(), turtle: () => TURTLE.clone(), arch: () => ARCH.clone(), boat: () => BOAT.clone(), shark: () => SHARK.clone(), buoy: () => BUOY.clone(), jetty: () => JETTY.clone(), ramp: () => RAMP.clone() };
 const FOAM_SIZE = { rock: [3.6, 3.2], log: [3.4, 1.6], turtle: [2.8, 3], boat: [3.2, 6], shark: [1.8, 1.4], buoy: [2.6, 2.6], jetty: [3.4, 1.4], ramp: [3.4, 5] };
 const easeOutBack = t => { const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
 function addObstacle(type, lane, z, opt = {}) {
-  const mesh = OBS_MESH[type]();
+  const mesh = OBS_MESH[type](); let o_arm = null, o_flag = null;
+  if (type === 'boat') { o_arm = mesh.getObjectByName('arm'); o_flag = mesh.getObjectByName('flag'); }
   if (type === 'turtle') mesh.userData.fl = mesh.children.filter(c => c.type === 'Group').map((piv, i) => ({ piv, sx: i % 2 ? 1 : -1, big: i < 2 }));
   if (type === 'arch') lane = 0;
   mesh.rotation.y = type === 'rock' ? rand(TAU) : 0;
-  const o = { type, lane, x: lane * LANE_W, z, mesh, ...OBS_TYPES[type], hit: false, ph: rand(TAU), born: time, ...opt };
+  const o = { type, lane, x: lane * LANE_W, z, mesh, ...OBS_TYPES[type], hit: false, ph: rand(TAU), born: time, arm: o_arm, flag: o_flag, ...opt };
   if (type === 'shark') { o.cx = o.x; o.x = o.cx; }
   mesh.position.set(o.x, -2, z); mesh.scale.setScalar(0.01); scene.add(mesh); obstacles.push(o);
   if (type === 'arch') { o.foam = new THREE.Group(); for (const sd of [-1, 1]) { const f2 = new THREE.Mesh(foamGeo, foamMat); f2.scale.set(3.4, 1, 3); f2.position.set(sd * 5.4, 0.05, 0); f2.renderOrder = 1; mesh.add(f2); } }
@@ -745,6 +709,7 @@ const bubbleMat = new THREE.ShaderMaterial({
   vertexShader: `varying vec3 vN, vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `uniform vec3 uCol; uniform float uA; varying vec3 vN, vV; void main(){ vec3 n = normalize(vN), v = normalize(vV); float f = pow(clamp(1. - abs(dot(n, v)), 0., 1.), 2.2); vec3 c = mix(uCol * .6, vec3(1.), f * .7);
     float hl = smoothstep(.93, .99, dot(n, normalize(vec3(-.5, .6, .6)))); gl_FragColor = vec4(min(c + hl, vec3(1.2)), clamp((f * .9 + .08 + hl) * uA, 0., 1.));
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
     }`,
   transparent: true, depthWrite: false,
@@ -867,7 +832,7 @@ function makeDolphin() {
   return g;
 }
 const dolphins = [];
-for (let i = 0; i < 3; i++) { const m = makeDolphin(); scene.add(m); dolphins.push({ m, side: i % 2 ? 1 : -1, x: 0, z: -40 - i * 25, wait: rand(0.5, 2.5), t: -1, dur: 1.2, h: 2 }); }
+for (let i = 0; i < 3; i++) { const m = bake(makeDolphin()); scene.add(m); dolphins.push({ m, side: i % 2 ? 1 : -1, x: 0, z: -40 - i * 25, wait: rand(0.5, 2.5), t: -1, dur: 1.2, h: 2 }); }
 function respawnDolphin(d) { d.side = Math.random() < 0.5 ? -1 : 1; d.x = d.side * rand(7, 11); d.z = P.z - rand(30, 70); d.t = -1; d.wait = rand(0.8, 3); }
 dolphins.forEach(respawnDolphin);
 function splash(x, y, z, n, s = 1) { for (let i = 0; i < n; i++) { const a = rand(TAU); addPart(x + Math.cos(a) * 0.3, y, z + Math.sin(a) * 0.5, Math.cos(a) * rand(0.5, 2.5) * s, rand(2, 5) * s, Math.sin(a) * rand(0.5, 2) * s, rand(0.5, 0.9), rand(0.1, 0.2), '#ffffff'); } }
@@ -896,7 +861,7 @@ function makeGull() {
   const beak = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.1, 6).rotateX(-Math.PI / 2), toon('#ffb020')); beak.position.set(0, 0.03, -0.34); g.add(beak);
   const wings = [];
   for (const sd of [-1, 1]) {
-    const piv = new THREE.Group(); piv.position.set(sd * 0.06, 0.03, -0.04); g.add(piv);
+    const piv = new THREE.Group(); piv.position.set(sd * 0.06, 0.03, -0.04); piv.userData.keep = true; g.add(piv);
     const inner = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.02, 0.2), W), 0.01); inner.position.x = sd * 0.21; piv.add(inner);
     const op = new THREE.Group(); op.position.x = sd * 0.42; piv.add(op);
     const outer = withOutline(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.018, 0.15), G), 0.01); outer.position.set(sd * 0.2, 0, 0.02); op.add(outer);
@@ -907,7 +872,7 @@ function makeGull() {
   g.userData.wings = wings; g.scale.setScalar(1.4); return g;
 }
 const gulls = [];
-for (let i = 0; i < 5; i++) { const m = makeGull(); scene.add(m); gulls.push({ m, cx: rand(-14, 14), cy: rand(7, 13), dz: rand(18, 60), r: rand(5, 10), w: rand(0.35, 0.6) * (Math.random() < 0.5 ? -1 : 1), a: rand(TAU), ph: rand(TAU) }); }
+for (let i = 0; i < 5; i++) { const m = bake(makeGull()); scene.add(m); gulls.push({ m, cx: rand(-14, 14), cy: rand(7, 13), dz: rand(18, 60), r: rand(5, 10), w: rand(0.35, 0.6) * (Math.random() < 0.5 ? -1 : 1), a: rand(TAU), ph: rand(TAU) }); }
 function updateGulls(dt) {
   for (const b of gulls) {
     b.a += b.w * dt; b.dz -= dt * 3; if (b.dz < 12) { b.dz = rand(50, 80); b.cx = rand(-16, 16); b.cy = rand(7, 13); }
@@ -931,7 +896,7 @@ function makeSailboat(stripe) {
   const sail = withOutline(new THREE.Mesh(sg, toon('#ffffff', { map: st, side: THREE.DoubleSide })), 0.02); sail.rotation.y = -Math.PI / 2; sail.position.set(0, 0.7, -0.35); g.add(sail);
   return g;
 }
-const boats = [makeSailboat('#e8483a'), makeSailboat('#2f8fe0')];
+const boats = [makeSailboat('#e8483a'), makeSailboat('#2f8fe0')].map(b => bake(b));
 boats.forEach((b, i) => { b.position.set((i ? 1 : -1) * rand(60, 110), 0, P.z - rand(120, 260)); b.rotation.y = rand(TAU); scene.add(b); });
 function updateBoats() {
   for (const b of boats) {
@@ -957,20 +922,38 @@ const partMat = new THREE.ShaderMaterial({
       vC.a *= smoothstep(1.2, 3., z);
       gl_PointSize = min(size * uScale / z, uScale * .06); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `varying vec4 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = length(d); float a = smoothstep(.5, .2, r); vec3 c = vC.rgb + (1. - smoothstep(0., .35, length(d + vec2(.12, .12)))) * .25; gl_FragColor = vec4(c, a * vC.a);
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
     }`,
   transparent: true, depthWrite: false,
 });
 const partPoints = new THREE.Points(partGeo, partMat); partPoints.frustumCulled = false; partPoints.renderOrder = 3; scene.add(partPoints);
-const parts = [];
-const _c = new THREE.Color();
-function addPart(x, y, z, vx, vy, vz, life, size, col, grav = 14) { if (parts.length >= PART_N) return; _c.set(col); parts.push({ x, y, z, vx, vy, vz, life, max: life, size, r: _c.r, g: _c.g, b: _c.b, grav }); }
+// Partikel in festen Feldern statt einzelner Objekte: kein Müll für den Speicherbereiniger (der sonst ruckeln lässt)
+const PF = 13, pData = new Float32Array(PART_N * PF); // x y z vx vy vz life max size r g b grav
+let partCount = 0, partCap = PART_N;
+const colCache = new Map(), _c = new THREE.Color();
+function addPart(x, y, z, vx, vy, vz, life, size, col, grav = 14) {
+  if (partCount >= partCap) return;
+  let c = colCache.get(col); if (!c) { _c.set(col); c = [_c.r, _c.g, _c.b]; colCache.set(col, c); }
+  const o = partCount++ * PF;
+  pData[o] = x; pData[o + 1] = y; pData[o + 2] = z; pData[o + 3] = vx; pData[o + 4] = vy; pData[o + 5] = vz;
+  pData[o + 6] = life; pData[o + 7] = life; pData[o + 8] = size; pData[o + 9] = c[0]; pData[o + 10] = c[1]; pData[o + 11] = c[2]; pData[o + 12] = grav;
+}
+const PART_ATTRS = ['position', 'color', 'size'];
 function updateParts(dt) {
-  let n = 0;
-  for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts[i] = parts[parts.length - 1]; parts.pop(); continue; } p.vy -= p.grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
-  for (const p of parts) { const k = p.life / p.max; pPos[n * 3] = p.x; pPos[n * 3 + 1] = p.y; pPos[n * 3 + 2] = p.z; pCol[n * 4] = p.r; pCol[n * 4 + 1] = p.g; pCol[n * 4 + 2] = p.b; pCol[n * 4 + 3] = Math.min(1, k * 2.2) * 0.95; pSize[n] = p.size * (0.6 + 0.6 * (1 - k)); n++; }
-  partGeo.setDrawRange(0, n);
-  for (const a of ['position', 'color', 'size']) partGeo.attributes[a].needsUpdate = true;
+  for (let i = 0; i < partCount; i++) {
+    let o = i * PF;
+    if ((pData[o + 6] -= dt) <= 0) { partCount--; if (i < partCount) { pData.copyWithin(o, partCount * PF, partCount * PF + PF); i--; } continue; }
+    pData[o + 4] -= pData[o + 12] * dt; pData[o] += pData[o + 3] * dt; pData[o + 1] += pData[o + 4] * dt; pData[o + 2] += pData[o + 5] * dt;
+  }
+  for (let n = 0; n < partCount; n++) {
+    const o = n * PF, k = pData[o + 6] / pData[o + 7];
+    pPos[n * 3] = pData[o]; pPos[n * 3 + 1] = pData[o + 1]; pPos[n * 3 + 2] = pData[o + 2];
+    pCol[n * 4] = pData[o + 9]; pCol[n * 4 + 1] = pData[o + 10]; pCol[n * 4 + 2] = pData[o + 11]; pCol[n * 4 + 3] = Math.min(1, k * 2.2) * 0.95;
+    pSize[n] = pData[o + 8] * (0.6 + 0.6 * (1 - k));
+  }
+  partGeo.setDrawRange(0, partCount);
+  for (const a of PART_ATTRS) partGeo.attributes[a].needsUpdate = true;
 }
 
 /* ---------- Kielwelle: zwei Schaumbänder, folgen der gefahrenen Linie ---------- */
@@ -988,15 +971,18 @@ const wakeMat = new THREE.ShaderMaterial({
     float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
     void main(){ float edge = smoothstep(0., .35, vUv.x) * smoothstep(1., .55, vUv.x); float f = n(vec2(vUv.x * 4., vUv.y * 1.3)) * .6 + n(vec2(vUv.x * 9., vUv.y * 3.1)) * .4;
       float a = vA * edge * smoothstep(.25, .6, f + vA * .25); gl_FragColor = vec4(vec3(.95, .99, 1.), a * .9);
+      #include <tonemapping_fragment>
       #include <colorspace_fragment>
     }`,
   transparent: true, depthWrite: false, depthTest: false,
 });
 const wake = new THREE.Mesh(wakeGeo, wakeMat); wake.frustumCulled = false; wake.renderOrder = 1; scene.add(wake);
+const trailHit = { x: 0, air: false };
 function trailAt(z) {
-  for (let i = trail.length - 1; i > 0; i--) { const a = trail[i - 1], b = trail[i]; if (a.z >= z && b.z <= z) { const t = (a.z - z) / Math.max(1e-3, a.z - b.z); return { x: lerp(a.x, b.x, t), air: a.air || b.air }; } }
+  for (let i = trail.length - 1; i > 0; i--) { const a = trail[i - 1], b = trail[i]; if (a.z >= z && b.z <= z) { const t = (a.z - z) / Math.max(1e-3, a.z - b.z); trailHit.x = lerp(a.x, b.x, t); trailHit.air = a.air || b.air; return trailHit; } }
   return null;
 }
+const WAKE_ATTRS = ['position', 'alpha', 'uv'];
 function updateWake() {
   const last = trail[trail.length - 1];
   if (!last || last.z - P.z > 0.25) trail.push({ x: P.x, z: P.z, air: P.air || !P.alive }); else { last.x = P.x; last.air = last.air && (P.air || !P.alive); }
@@ -1014,23 +1000,37 @@ function updateWake() {
       }
     }
   }
-  for (const a of ['position', 'alpha', 'uv']) wakeGeo.attributes[a].needsUpdate = true;
+  for (const a of WAKE_ATTRS) wakeGeo.attributes[a].needsUpdate = true;
 }
 
 /* =========================================================================
    Nachbearbeitung: Leuchten, Kantenglättung, Farbwiedergabe
    ========================================================================= */
-const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
-const composer = new EffectComposer(renderer, rt);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.55, 0.92);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
+// nur auf Stufe 2: Leuchten über eine Nachbearbeitung; sonst wird direkt in den Bildschirm gezeichnet
+let composer = null, bloom = null, bloomStrength = 0.28;
+function ensureComposer() {
+  if (composer) return;
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+  composer.addPass(new RenderPass(scene, camera));
+  bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.55, 0.92);
+  composer.addPass(bloom); composer.addPass(new OutputPass());
+  composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
+}
+function dropComposer() { if (!composer) return; composer.dispose(); bloom.dispose(); composer = bloom = null; }
+function renderFrame(dt) { if (composer) composer.render(dt); else renderer.render(scene, camera); }
+// Stufe anwenden: einfache Shader, gröberes Wassergitter und weniger Partikel auf Stufe 0
+function applyTier() {
+  const low = tier === 0;
+  for (const m of [waterMat, skyMat]) { m.defines = m.defines || {}; if (('LOWQ' in m.defines) !== low) { if (low) m.defines.LOWQ = ''; else delete m.defines.LOWQ; m.needsUpdate = true; } }
+  const st = low ? 0.75 : 0.5; if (water.userData.st !== st) { water.geometry.dispose(); water.geometry = waterGeometry(st); water.userData.st = st; }
+  partCap = low ? 450 : PART_N; partCount = Math.min(partCount, partCap);
+  if (tier >= 2) ensureComposer(); else dropComposer();
+}
 
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setPixelRatio(pixelRatio); renderer.setSize(w, h, false);
-  composer.setPixelRatio(pixelRatio); composer.setSize(w, h);
+  if (composer) { composer.setPixelRatio(pixelRatio); composer.setSize(w, h); }
   camera.aspect = w / h; camera.updateProjectionMatrix();
   partMat.uniforms.uScale.value = h * pixelRatio * 1.1;
 }
@@ -1058,7 +1058,7 @@ function applyTheme(id) {
   scene.fog.color.set(T.horizon); scene.fog.far = T.fogFar;
   hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]); hemi.intensity = T.hemi[2];
   sun.color.set(T.sun[0]); sun.intensity = T.sun[1]; fill.color.set(T.fill[0]); fill.intensity = T.fill[1];
-  bloom.strength = T.bloom; envGround.color.set(T.ground);
+  bloomStrength = T.bloom; if (bloom) bloom.strength = T.bloom; envGround.color.set(T.ground);
   document.body.style.background = T.horizon;
   buildEnv();
   try { localStorage.setItem(THEME_KEY, id); } catch (e) {}
@@ -1230,12 +1230,12 @@ function update(dt) {
     if (o.type === 'boat') { // fährt los, wenn der Surfer nah ist
       if (!o.moving && P.z - o.z < 46 && play) { o.moving = true; Sound.fx.horn(); }
       if (o.moving && state !== 'crash') { o.z += 5 * dt; if (Math.random() < 0.7) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(o.x + sd * 0.7, 0.2, o.z + 2.2, sd * rand(1, 3), rand(1, 3), rand(2, 5), rand(0.4, 0.7), rand(0.12, 0.22), '#ffffff'); } }
-      const arm = o.mesh.getObjectByName('arm'); if (arm) arm.rotation.z = -0.6 + Math.sin(time * 9 + o.ph) * 0.5;
-      const fl = o.mesh.getObjectByName('flag'); if (fl) fl.rotation.x = Math.sin(time * 12 + o.ph) * 0.25;
+      if (o.arm) o.arm.rotation.z = -0.6 + Math.sin(time * 9 + o.ph) * 0.5;
+      if (o.flag) o.flag.rotation.x = Math.sin(time * 12 + o.ph) * 0.25;
     }
     if (o.type === 'shark') { const a = time * 1.5 + o.ph; o.x = o.cx + Math.sin(a) * LANE_W * 0.55; o.mesh.scale.x = Math.cos(a) > 0 ? -1 : 1; if (Math.random() < 0.4) addPart(o.x, 0.1, o.z, rand(-1, 1), rand(0.5, 1.5), rand(-0.5, 0.5), 0.4, rand(0.08, 0.14), '#ffffff'); }
     const h = waveH(o.x, o.z, 3), e = smooth01((time - o.born) / 0.5), grow = Math.max(0.01, easeOutBack(e));
-    const baseY = { log: h + 0.12, turtle: h - 0.05, arch: 0, boat: h * 0.8, shark: h, buoy: h * 0.9 - 0.15, jetty: h * 0.5, ramp: h * 0.7 }[o.type] ?? h * 0.4 - 0.25;
+    const ty = o.type, baseY = ty === 'log' ? h + 0.12 : ty === 'turtle' ? h - 0.05 : ty === 'arch' ? 0 : ty === 'boat' ? h * 0.8 : ty === 'shark' ? h : ty === 'buoy' ? h * 0.9 - 0.15 : ty === 'jetty' ? h * 0.5 : ty === 'ramp' ? h * 0.7 : h * 0.4 - 0.25;
     o.mesh.position.set(o.x, baseY - (1 - e) * 1.5, o.z);
     if (o.type === 'shark') o.mesh.scale.set(Math.sign(o.mesh.scale.x) * grow, grow, grow); else o.mesh.scale.setScalar(grow);
     if (o.type === 'turtle') { for (const f of o.mesh.userData.fl) f.piv.rotation.z = Math.sin(time * 3 + o.ph + (f.big ? 0 : 1.5)) * (f.big ? 0.5 : 0.3) * f.sx; o.mesh.rotation.y = Math.sin(time * 0.7 + o.ph) * 0.25; o.z -= dt * 0.8; }
@@ -1271,7 +1271,7 @@ function syncScene(dt) {
   kite.visible = pw.kite > 0 && state === 'play' && (pw.kite > 1.2 || Math.floor(time * 8) % 2 === 0);
   if (kite.visible) {
     kite.position.set(P.x + Math.sin(time * 0.9) * 0.4, P.y + 3.6, P.z - 1.2); kite.rotation.set(-0.25, 0, Math.sin(time * 1.3) * 0.1);
-    const la = kite.userData.lines.geometry.attributes.position, hl = surfer.parts.handL.getWorldPosition(_v1), hr = surfer.parts.handR.getWorldPosition(_v2);
+    const la = kite.userData.lines.geometry.attributes.position, hl = surfer.handWorld('L', _v1), hr = surfer.handWorld('R', _v2);
     la.setXYZ(0, hl.x, hl.y, hl.z); la.setXYZ(1, kite.position.x - 1.5, kite.position.y + 0.2, kite.position.z); la.setXYZ(2, hr.x, hr.y, hr.z); la.setXYZ(3, kite.position.x + 1.5, kite.position.y + 0.2, kite.position.z); la.needsUpdate = true;
   }
   kite.userData.lines.visible = kite.visible;
@@ -1320,29 +1320,35 @@ function syncScene(dt) {
   fill.target.position.copy(player.position); fill.position.copy(player.position).add(_v1.set(-4, 6, 12));
 }
 
-/* ---------- Schleife mit automatischer Auflösung ---------- */
-let last = performance.now(), acc = 0, frames = 0, goodFor = 0, lowered = 0;
-// Bildrate halten: Auflösung stufenweise anpassen. Wird VOR dem Zeichnen geändert – eine Größenänderung
-// nach dem Zeichnen leert die Leinwand, dann blitzt für ein Bild der Seitenhintergrund durch (orangenes Flackern).
-function adaptResolution(dtReal) {
-  if (TEST || state !== 'play') { acc = 0; frames = 0; return; }
-  acc += dtReal; frames++;
-  if (acc < 2) return;
-  const fps = frames / acc; acc = 0; frames = 0;
-  if (fps < 45 && pixelRatio > 0.7) { pixelRatio = Math.max(0.7, +(pixelRatio - 0.15).toFixed(2)); lowered++; goodFor = 0; resize(); }
-  // nur selten wieder hoch, und nach mehrmaligem Absenken gar nicht mehr (sonst Pendeln)
-  else if (fps > 58 && pixelRatio < MAX_DPR && lowered < 3 && ++goodFor > 5) { pixelRatio = Math.min(MAX_DPR, +(pixelRatio + 0.1).toFixed(2)); goodFor = 0; resize(); }
+/* ---------- Schleife: geglättete Bildzeit, Qualität passt sich an ---------- */
+let last = performance.now(), dtS = 1 / 60, acc = 0, frames = 0, sumSq = 0, goodFor = 0, drops = 0;
+const startLevel = qLevel;
+function setLevel(l) { qLevel = l; [tier, pixelRatio] = LADDER[l]; applyTier(); resize(); }
+// Bildrate halten: erst das Leuchten weg, dann Auflösung, dann einfachere Shader. Wird VOR dem Zeichnen geändert –
+// eine Größenänderung nach dem Zeichnen leert die Leinwand (sonst blitzt der Seitenhintergrund durch).
+function adaptQuality(dtRaw) {
+  if (TEST || QUERY.has('q') || state !== 'play') { acc = frames = sumSq = 0; return; }
+  acc += dtRaw; frames++; sumSq += dtRaw * dtRaw;
+  if (acc < 1.5) return;
+  const mean = acc / frames, sd = Math.sqrt(Math.max(0, sumSq / frames - mean * mean)), fps = 1 / mean;
+  acc = frames = sumSq = 0;
+  const capped30 = fps > 27 && fps < 33 && sd < 0.0025; // fest auf 30 Bilder begrenzt (Stromsparmodus): nicht unnötig verschlechtern
+  if (fps < 50 && qLevel > 0 && !(capped30 && qLevel <= levelFor(1, 1))) { setLevel(qLevel - 1); drops++; goodFor = 0; }
+  else if (fps > 58 && qLevel < startLevel && drops < 3 && ++goodFor > 6) { setLevel(qLevel + 1); goodFor = 0; }
 }
 function frame(now) {
   requestAnimationFrame(frame);
-  const dtReal = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+  // kleine Schwankungen im Bildtakt glätten – sonst zittert die Welt, obwohl alles flüssig läuft
+  dtS += (raw - dtS) * (Math.abs(raw - dtS) > 0.012 ? 0.5 : 0.15);
+  const dtReal = dtS;
   if (resizePending) { resizePending = false; resize(); }
-  if (state === 'pause') { composer.render(dtReal); return; }
-  adaptResolution(dtReal);
+  if (state === 'pause') { renderFrame(dtReal); return; }
+  adaptQuality(raw);
   if (hitStop > 0) hitStop -= dtReal; else if (!(window.surf3d && surf3d.freeze)) update(dtReal);
   shake = Math.max(0, shake - dtReal * 1.8);
   syncScene(dtReal);
-  composer.render(dtReal);
+  renderFrame(dtReal);
 }
 
 /* ---------- Eingaben ---------- */
@@ -1366,17 +1372,20 @@ addEventListener('blur', () => { downHeld = false; });
 // Wischen reagiert sofort, sobald der Finger weit genug gewandert ist – nicht erst beim Loslassen.
 // Ohne Absetzen kann man weiterwischen (z. B. erst zur Seite, dann hoch).
 let touch = null;
-const swipeTh = () => clamp(Math.min(innerWidth, innerHeight) * 0.045, 16, 42);
+// Pro Berührung höchstens ein Spurwechsel je Richtung: ein langer Wisch landet in der mittleren Spur,
+// nicht gleich auf der anderen Seite. Zurückwischen (Richtung wechseln) geht ohne Absetzen.
+const swipeTh = () => clamp(Math.min(innerWidth, innerHeight) * 0.05, 18, 44);
 canvas.addEventListener('pointerdown', e => {
-  touch = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), acted: false };
+  touch = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), acted: false, lastH: 0, lastV: 0 };
   try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
 });
 canvas.addEventListener('pointermove', e => {
   if (!touch || e.pointerId !== touch.id) return;
-  const dx = e.clientX - touch.x, dy = e.clientY - touch.y, th = swipeTh() * (touch.acted ? 1.4 : 1);
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < th) return;
-  if (Math.abs(dx) > Math.abs(dy) * 0.9) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else duck();
-  touch.x = e.clientX; touch.y = e.clientY; touch.acted = true;
+  const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < swipeTh()) return;
+  if (Math.abs(dx) > Math.abs(dy) * 0.9) { const d = dx > 0 ? 1 : -1; if (d !== touch.lastH) { moveLane(d); touch.lastH = d; touch.lastV = 0; touch.acted = true; } }
+  else { const d = dy < 0 ? -1 : 1; if (d !== touch.lastV) { if (d < 0) jump(); else duck(); touch.lastV = d; touch.lastH = 0; touch.acted = true; } }
+  touch.x = e.clientX; touch.y = e.clientY;
 });
 const endTouch = (e, tap) => {
   if (!touch || e.pointerId !== touch.id) return;
@@ -1402,7 +1411,22 @@ $('again').addEventListener('click', start);
 // Wechsel zur 2D-Version merken, damit die Web-App beim nächsten Start dort weitermacht
 document.querySelectorAll('a.to2d').forEach(a => a.addEventListener('click', () => { try { localStorage.setItem('surfersSurf.mode', '2d'); } catch (e) {} }));
 
+// Shader und Texturen aller Hindernisse schon jetzt vorbereiten – sonst hakt es, wenn ein Boot oder Steg zum ersten Mal auftaucht
+function warmUp() {
+  const tmp = new THREE.Scene();
+  for (const k in OBS_MESH) tmp.add(OBS_MESH[k]());
+  tmp.add(new THREE.Mesh(foamGeo, foamMat));
+  for (const k in ICONS) { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.SphereGeometry(0.62, 8, 6), bubbleMat), new THREE.Sprite(new THREE.SpriteMaterial({ map: ICONS[k], transparent: true, depthWrite: false }))); tmp.add(g); }
+  renderer.setRenderTarget(composer ? composer.renderTarget1 : null);
+  try { renderer.compile(scene, camera); renderer.compile(tmp, camera, scene); } catch (e) {}
+  renderer.setRenderTarget(null);
+  const tex = new Set();
+  for (const root of [scene, tmp]) root.traverse(o => { if (o.material) for (const m of [].concat(o.material)) for (const k of ['map', 'gradientMap', 'alphaMap']) if (m[k]) tex.add(m[k]); });
+  for (const t of tex) renderer.initTexture(t);
+}
+applyTier();
 resize();
+warmUp();
 requestAnimationFrame(t => { last = t; frame(t); });
 // Testzugang für automatische Bildprüfung
-window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, bloom, renderer, scene, sky, water, composer, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
+window.surf3d = { P, get state() { return state; }, get time() { return time; }, get startZ() { return startZ; }, get runCoins() { return runCoins; }, get lastCrash() { return lastCrash; }, obstacles, coins, step: dt => { update(dt); syncScene(dt); }, duck, start, jump, moveLane, addObstacle, setDpr: v => { pixelRatio = v; resize(); }, get bloom() { return bloom; }, renderer, scene, sky, water, get composer() { return composer; }, get quality() { return { tier, pixelRatio, level: qLevel, gpu: GPU_NAME }; }, setLevel, wakeGeo, trail, CR, surfer, board, player, camera, dolphins, gulls, boats, pw, addPickup, activate, applyTheme };
