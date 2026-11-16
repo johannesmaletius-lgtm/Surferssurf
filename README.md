@@ -15,11 +15,18 @@ Echte 3D-Wellen, Licht und Kielwasser mit [Three.js](https://threejs.org/) (MIT-
 https://johannesmaletius-lgtm.github.io/Surferssurf/3d/
 
 - `3d/main.js` – das Spiel (Wasser-Shader, Inseln, Berge, Delfine, Möwen, Hindernisse)
-- `3d/models/surfer.glb` – der Surfer als eigenes 3D-Modell (glTF mit Skelett), ansehen und Posen ausprobieren:
-  https://johannesmaletius-lgtm.github.io/Surferssurf/3d/surfer.html
-- `3d/surfer.js` – lädt das Modell, Cartoon-Material mit Kontur, Posen auf dem Brett (IK); `3d/rig.js` – das Skelett
+- `3d/models/surfer.glb` – der Surfer als eigenes 3D-Modell (glTF mit Skelett, rund 40.000 Dreiecke): Gesicht mit großen
+  Augen und Lidschlag, Haarsträhnen unter der Kappe, einzelne Finger und Zehen, Lycra-Shirt und Boardshorts mit Säumen,
+  Falten, Kordel und Logos. Farbflächen sind als Geometrie geschnitten (keine Textur) und bleiben in jeder Auflösung scharf.
+  Ansehen und alle Bewegungen ausprobieren: https://johannesmaletius-lgtm.github.io/Surferssurf/3d/surfer.html
+- `3d/surfer.js` – lädt das Modell; Cartoon-Material (weiche Lichtstufen, farbige Schatten, warme Haut, Haar- und
+  Augenglanz, helle Gegenlicht-Kante) mit feiner Kontur, deren Breite am Bildschirm hängt; dazu die Bewegung:
+  Posen per IK, Federn für Gewicht und Nachschwingen (Körper, Arme, Kopf, Haare, Hosenbeine), Atmen, Umschauen,
+  Blinzeln, Kurvenlage mit Überschwingen, Sprung mit Ausholen, Grab/Shaka, Landung in die Knie, Münz-Reaktion,
+  Jubel beim Power-up und Sturz (wirbelt, taucht auf, winkt ab). `3d/rig.js` – das Skelett samt Hilfsknochen
+  (Knie/Ellbogen knicken nicht ein, Haare, Hosensaum, Lider)
 - `3d/tools/build-surfer.mjs` – baut das Modell aus weichen Grundformen (einmalig `npm i meshoptimizer` in `3d/tools`,
-  dann `node build-surfer.mjs`)
+  dann `node build-surfer.mjs`; `STEP=0.008` für eine schnelle Vorschau, `TRIS=…` für mehr/weniger Dreiecke)
 - `3d/shop.js` – Shop mit Brettern (alle 9 aus 2D als Deck-Bemalung), Welten (Canyon für 800 Münzen) und Power-Up-Stufen.
   Der Spielstand wird mit der 2D-Version geteilt: Münzen, Bretter, Welten und Stufen gelten in beiden Versionen.
 - `3d/sound.js` – Ton per WebAudio (Meer, Wind, Musik, Effekte), aus dem 2D-Spiel übernommen

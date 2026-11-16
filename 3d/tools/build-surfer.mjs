@@ -6,7 +6,7 @@
 // Kleidung (Lycra-Shirt, Boardshorts) und Haare sind eigene Schichten über der Haut, deshalb entstehen echte Säume.
 // Farbflächen sind Zonen: Punkte neben einer Farbgrenze werden genau auf die Grenze geschoben und dort verdoppelt –
 // die Ränder sind dadurch in jeder Auflösung glatt und scharf (ganz ohne Textur).
-// Kappe, Augen, Lider, Brauen, Mund, Logo und Kordel sind eigene, scharfe Formen.
+// Kappe, Augen, Lider, Brauen, Mund, Logos, Kordel, Leash-Manschette und Armband sind eigene, scharfe Formen.
 // Jeder Punkt bekommt Gewichte für die Knochen aus rig.js – das Spiel bewegt sie per IK.
 // Im Modell stecken außerdem: COLOR_0.a = Stärke der Kontur, TEXCOORD_0 = Material (x: 1 Haut / 0.5 Haar / 0 Stoff, y: Glanz).
 //
@@ -16,7 +16,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { BONES, BONE, REST, EYE_PIVOT, boneFrames } from '../rig.js';
 
 const STEP = +(process.env.STEP || 0.005);
-const TARGET_TRIS = +(process.env.TRIS || 28000);
+const TARGET_TRIS = +(process.env.TRIS || 26800);
 const OUT = new URL('../models/surfer.glb', import.meta.url);
 
 /* ---------- kleine Vektor-Helfer ---------- */
@@ -312,9 +312,9 @@ for (const [s] of SIDES) {
   lock([[s * 0.108, 0.04, -0.01], [s * 0.132, 0.0, 0.02], [s * 0.138, -0.05, 0.05], [s * 0.158, -0.085, 0.066]], [0.026, 0.03, 0.022, 0.004]);
 }
 // Pony: ein paar Strähnen schauen unter dem Schirm hervor, zur Seite gekämmt
-lock([[0.05, 0.066, -0.1], [0.012, 0.058, -0.127], [-0.035, 0.046, -0.128], [-0.066, 0.03, -0.116]], [0.02, 0.02, 0.015, 0.003]);
-lock([[0.088, 0.06, -0.074], [0.074, 0.05, -0.106], [0.062, 0.036, -0.118]], [0.02, 0.018, 0.003]);
-lock([[-0.04, 0.062, -0.1], [-0.07, 0.045, -0.105], [-0.092, 0.018, -0.094]], [0.018, 0.018, 0.003]);
+lock([[0.05, 0.05, -0.104], [0.012, 0.05, -0.127], [-0.035, 0.042, -0.128], [-0.066, 0.028, -0.116]], [0.017, 0.019, 0.015, 0.003]);
+lock([[0.088, 0.048, -0.078], [0.074, 0.044, -0.106], [0.062, 0.03, -0.118]], [0.017, 0.017, 0.003]);
+lock([[-0.04, 0.05, -0.104], [-0.07, 0.042, -0.105], [-0.092, 0.018, -0.094]], [0.016, 0.017, 0.003]);
 const CAP_TILT_ = 0.1, CAPC_ = hp(H, [0, 0.062, 0.012]), CR_ = [0.126, 0.11, 0.142], capBody = ellipsoid(CAPC_, CR_);
 const hairShell = ellipsoid(hp(H, [0, 0.005, 0.018]), [0.124, 0.135, 0.13]);
 const hairU = U(hairItems);
@@ -410,6 +410,7 @@ function zoneAt(x, y, z) {
     if (t > LEGLEN * HEM_T + 0.0004) return Z.shortsIn;                    // Blick ins Hosenbein
     if (tt > HEM_T - 0.058) return Z.stripe;                              // Saum
     if (Math.abs(ang) < 0.3) return Z.stripe;                              // Seitenstreifen
+    if (s > 0 && ang < -1.05 && ang > -2.0 && y < 1.04 && y > 0.995) return Z.band;   // Taschenklappe hinten rechts
     const w = tt - (0.45 + 0.03 * Math.sin(ang * 4 + 1));                 // Wellenlinie
     if (w > 0 && w < 0.045) return Z.wave;
     return Z.shorts;
@@ -646,6 +647,25 @@ const TH_RIM = Math.PI / 2 + 0.13;
     grid(logo, 2, 4, (u, v) => { const r = mix(0.062, 0.092, v), w = mix(0.0085, 0.0025, v) * (u * 2 - 1), [p, n] = onBack(cx + ca * r + tx * w, cy + sa * r + ty * w, 0.0016); return [p, n, cWhite]; });
   }
 }
+// Kleines Wellen-Logo vorn auf der Brust
+{
+  const logo = part(null, 0, M.lycra), lx = -0.082, ly = 1.452;
+  const onFront = (x, y, lift) => { const p = surfaceAlong(shirt, [x, y, 0], [0, 0, -1]); const n = norm(grad(shirt.d, ...p)); return [add(p, n, lift), n]; };
+  const disc = (r0, r1, col, lift) => grid(logo, 32, 2, (u, v) => { const a = u * Math.PI * 2, r = mix(r0, r1, v), [p, n] = onFront(lx + Math.cos(a) * r, ly + Math.sin(a) * r, lift); return [p, n, col]; }, true);
+  disc(0, 0.025, cWhite, 0.0014); disc(0, 0.0195, cBlue, 0.0024);
+  const wave = []; for (let i = 0; i <= 16; i++) { const t = i / 16; wave.push(onFront(lx - 0.014 + t * 0.028, ly - 0.002 + Math.sin(t * Math.PI * 2) * 0.0045, 0.0036)[0]); }
+  tube(logo, wave, () => 0.0021, cWhite, 5);
+}
+// Bänder: Leash-Manschette am hinteren Knöchel, geflochtenes Armband am linken Handgelenk
+function ringPart(bone, c, axis, R, rr, hh, cols, layerN) {
+  const pt = part(bone, 0.6, M.cloth); pt.u = false;
+  const ax = norm(axis), a = norm(cross(ax, Math.abs(ax[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0])), b = cross(ax, a);
+  grid(pt, 28, 10, (u, v) => { const th = u * Math.PI * 2, ph = v * Math.PI * 2, rad = add(mul(a, Math.cos(th)), b, Math.sin(th)), n = norm(add(mul(rad, Math.cos(ph) / rr), ax, Math.sin(ph) / hh));
+    return [add(add(c, rad, R + rr * Math.cos(ph)), ax, hh * Math.sin(ph)), n, cols(th, Math.sin(ph))]; }, true);
+}
+ringPart('shinR', add(leg.R.ft, leg.R.dl, -0.062), leg.R.dl, 0.0405, 0.007, 0.02, () => srgb('#152d74'));
+ringPart('shinR', add(leg.R.ft, leg.R.dl, -0.062), leg.R.dl, 0.0445, 0.0045, 0.006, () => cYel);
+ringPart('loL', add(arm.L.hd, arm.L.d, -0.03), arm.L.d, 0.0345, 0.0048, 0.0095, th => Math.sin(th * 9) > 0 ? srgb('#19b6c9') : cWhite);
 // Kordel am Hosenbund: Schleife mit zwei Enden
 {
   const cord = part(null, 0.3, M.cloth, 'shorts'), y0 = SHORTS_TOP - 0.016;
