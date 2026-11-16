@@ -46,9 +46,9 @@ function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 10139
 const deckCache = new Map();
 export function deckCanvas(b) {
   if (deckCache.has(b.id)) return deckCache.get(b.id);
-  const W = 128, H = 512, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  const W = 128, H = 512, HI = 4, c = document.createElement('canvas'); c.width = W * HI; c.height = H * HI; const x = c.getContext('2d'); x.scale(HI, HI); // 4-fach gezeichnet: scharf auf HD-Bildschirmen
   let glow = null, gx = null;
-  if (b.design === 'lava' || b.design === 'gold') { glow = document.createElement('canvas'); glow.width = W; glow.height = H; gx = glow.getContext('2d'); gx.fillStyle = '#000'; gx.fillRect(0, 0, W, H); }
+  if (b.design === 'lava' || b.design === 'gold') { glow = document.createElement('canvas'); glow.width = W * HI; glow.height = H * HI; gx = glow.getContext('2d'); gx.scale(HI, HI); gx.fillStyle = '#000'; gx.fillRect(0, 0, W, H); }
   const R = rng(b.id.length * 977 + b.price);
   const lin = (x0, y0, x1, y1, cols) => { const g = x.createLinearGradient(x0, y0, x1, y1); cols.forEach((col, i) => g.addColorStop(i / (cols.length - 1), col)); return g; };
   // Grund: Verlauf quer (gewölbtes Deck) und längs

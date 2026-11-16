@@ -13,6 +13,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const damp = (a, b, k, dt) => lerp(a, b, 1 - Math.exp(-k * dt));
 const rand = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+// Texturen in 4-facher Auflösung zeichnen (gleiche Koordinaten, nur schärfer) – wirkt auf HD-Bildschirmen nicht verwaschen
+const HI = 4; function hiCanvas(w, h) { const c = document.createElement('canvas'); c.width = w * HI; c.height = h * HI; const x = c.getContext('2d'); x.scale(HI, HI); return [c, x]; }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const smooth01 = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
@@ -34,12 +36,13 @@ const MAX_DPR = Math.min(window.devicePixelRatio || 1, 2);
 const GPU_NAME = (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) { return ''; } })();
 const SOFTWARE_GL = /swiftshader|llvmpipe|software|basic render/i.test(GPU_NAME);
 const WEAK = SOFTWARE_GL || (navigator.deviceMemory && navigator.deviceMemory <= 3) || (COARSE && (navigator.hardwareConcurrency || 8) <= 4) || /Mali-[GT][0-7]\d\b|Adreno \(TM\) [3-5]\d\d|PowerVR/i.test(GPU_NAME);
-const LADDER = (SOFTWARE_GL ? [[0, 0.7], [0, 0.85]] : []).concat([[0, 1], [0, 1.25], [1, 1.25], [1, 1.5], [1, 1.75], [2, 1.75], [2, 2]]).map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
+const LADDER = (SOFTWARE_GL ? [[0, 0.7], [0, 0.85], [0, 1]] : []).concat([[0, 1.25], [0, 1.5], [1, 1.5], [1, 1.75], [1, 2], [2, 2]]) // bei Ruckeln zuerst Effekte sparen, Auflösung bleibt HD.map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
   .filter((l, i, a) => i === 0 || l[0] !== a[i - 1][0] || l[1] !== a[i - 1][1]);
 const levelFor = (t, d) => { let best = 0; LADDER.forEach(([lt, ld], i) => { if (lt <= t && ld <= d + 1e-6) best = i; }); return best; };
 let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1.25) : COARSE ? levelFor(1, MAX_DPR) : levelFor(2, MAX_DPR);
 let tier = LADDER[qLevel][0], pixelRatio = LADDER[qLevel][1];
 renderer.setPixelRatio(pixelRatio);
+const MAX_ANISO = Math.min(16, renderer.capabilities.getMaxAnisotropy());
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.3, 4000); // nicht zu nah: genauere Tiefe, kein Flimmern an fernen Stränden
@@ -370,7 +373,7 @@ function makeBoard() {
   const pa = g.attributes.position;
   for (let i = 0; i < pa.count; i++) { const z = pa.getZ(i); if (z < -0.9) pa.setY(i, pa.getY(i) + Math.pow((-0.9 - z) / 0.7, 2) * 0.13); if (z > 0.45) pa.setY(i, pa.getY(i) + Math.pow((z - 0.45) / 0.2, 2) * 0.02); }
   g.computeVertexNormals();
-  const deckTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#f6ecd2'; x.fillRect(0, 0, 64, 256); x.fillStyle = '#34a3ec'; x.fillRect(28, 0, 8, 256); x.fillStyle = '#ff6b4a'; x.fillRect(22, 0, 3, 256); x.fillRect(39, 0, 3, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const deckTex = (() => { const [c, x] = hiCanvas(64, 256); x.fillStyle = '#f6ecd2'; x.fillRect(0, 0, 64, 256); x.fillStyle = '#34a3ec'; x.fillRect(28, 0, 8, 256); x.fillStyle = '#ff6b4a'; x.fillRect(22, 0, 3, 256); x.fillRect(39, 0, 3, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   // UV entlang der Länge für den Streifen
   const uv = new Float32Array(pa.count * 2); for (let i = 0; i < pa.count; i++) { uv[i * 2] = pa.getX(i) / (W * 2) + 0.5; uv[i * 2 + 1] = (pa.getZ(i) + 1.6) / 2.2; }
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -385,7 +388,7 @@ const board = bakeOne(makeBoard());
 // Brett aus dem Shop: Deck-Bemalung (und bei Obsidian/Gold ein Leuchtbild) aufs Brett legen
 let boardMat = null; board.traverse(o => { if (o.material && o.material.map) boardMat = o.material; });
 const deckTexCache = new Map();
-function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; deckTexCache.set(c, t); } return t; }
+function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MAX_ANISO; deckTexCache.set(c, t); } return t; }
 let boardInfo = Shop.getBoard(Shop.save.board);
 function applyBoard() {
   boardInfo = Shop.getBoard(Shop.save.board); const { deck, glow } = Shop.deckCanvas(boardInfo);
@@ -399,7 +402,7 @@ player.add(board, surfer.root);
 scene.add(player);
 
 // weicher Schatten unter dem Surfer
-const blobTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(0,20,40,.55)'); g.addColorStop(1, 'rgba(0,20,40,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+const blobTex = (() => { const [c, x] = hiCanvas(128, 128); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(0,20,40,.55)'); g.addColorStop(1, 'rgba(0,20,40,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
 const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.6), new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, depthTest: false }));
 blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 
@@ -421,7 +424,7 @@ function pose(t, dt) {
    Welt: Inseln mit Palmen, Berge, Bojen, Hindernisse, Münzen
    ========================================================================= */
 const frondTex = (() => {
-  const c = document.createElement('canvas'); c.width = 128; c.height = 512; const x = c.getContext('2d');
+  const [c, x] = hiCanvas(128, 512);
   x.strokeStyle = '#ffffff'; x.lineCap = 'round';
   x.lineWidth = 7; x.beginPath(); x.moveTo(64, 0); x.lineTo(64, 512); x.stroke();
   for (let i = 0; i < 34; i++) { const y = 10 + i * 14.5, l = 58 * Math.sin((i + 2) / 37 * Math.PI) + 6; x.lineWidth = 9 - i * 0.12;
@@ -556,7 +559,7 @@ const ROCKS = [0, 1, 2, 3].map(s => bakeOne(makeRockMesh(100 + s, 1.25, 1.8, 1.1
 const LOG = (() => { const g = new THREE.Group(); const body = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 2.3, 12), toon('#8a5a32')), 0.03); body.rotation.z = Math.PI / 2; g.add(body);
   for (const sd of [-1, 1]) { const end = new THREE.Mesh(new THREE.CircleGeometry(0.32, 14), toon('#e0b47a')); end.position.x = sd * 1.16; end.rotation.y = sd * Math.PI / 2; g.add(end); }
   const br = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.7, 6), toon('#7a4e2a')), 0.02); br.position.set(0.4, 0.35, 0); br.rotation.z = -0.6; g.add(br); return g; })();
-const foamTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+const foamTex = (() => { const [c, x] = hiCanvas(128, 128);
   const g = x.createRadialGradient(64, 64, 22, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.35, 'rgba(255,255,255,.95)'); g.addColorStop(.55, 'rgba(235,250,255,.55)'); g.addColorStop(1, 'rgba(235,250,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 60; i++) { const a = Math.random() * TAU, r = 30 + Math.random() * 26; x.fillStyle = 'rgba(255,255,255,.7)'; x.beginPath(); x.arc(64 + Math.cos(a) * r, 64 + Math.sin(a) * r, 2 + Math.random() * 4, 0, TAU); x.fill(); }
@@ -580,7 +583,7 @@ const ARCH = (() => {
   return g;
 })();
 // Meeresschildkröte: flacher Panzer mit Wabenmuster, paddelnde Flossen
-const shellTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#6b7a2e'; x.fillRect(0, 0, 128, 128);
+const shellTex = (() => { const [c, x] = hiCanvas(128, 128); x.fillStyle = '#6b7a2e'; x.fillRect(0, 0, 128, 128);
   x.strokeStyle = '#3e4a18'; x.lineWidth = 4; x.fillStyle = '#8a9a3c';
   for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) { const cx = i * 30 + (j % 2) * 15 - 4, cy = j * 26 + 6; x.beginPath(); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + Math.PI / 6; x.lineTo(cx + Math.cos(a) * 13, cy + Math.sin(a) * 13); } x.closePath(); x.fill(); x.stroke(); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
@@ -599,7 +602,7 @@ function makeTurtle() {
   return g; // Flossen werden beim Klonen neu gesucht (keine Objekte in userData, die würden beim Klonen serialisiert)
 }
 const TURTLE = makeTurtle();
-const stripeTex = (cols, n, w = 16, h = 128, vertical = false) => { const c = document.createElement('canvas'); c.width = vertical ? h : w; c.height = vertical ? w : h; const x = c.getContext('2d');
+const stripeTex = (cols, n, w = 16, h = 128, vertical = false) => { const [c, x] = hiCanvas(vertical ? h : w, vertical ? w : h);
   for (let i = 0; i < n; i++) { x.fillStyle = cols[i % cols.length]; if (vertical) x.fillRect(i * h / n, 0, h / n + 1, w); else x.fillRect(0, i * h / n, w, h / n + 1); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
 // Motorboot: kommt in seiner Spur entgegen – nur ausweichen hilft
@@ -661,7 +664,7 @@ const JETTY = (() => {
   const g = new THREE.Group(), wood = toon('#9a6b3d'), woodD = toon('#7a5230');
   for (const sd of [-1, 1]) { const post = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 3, 10), woodD), 0.025); post.position.set(sd * 1.18, 0.6, 0); g.add(post);
     const cap2 = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.08, 10), wood); cap2.position.set(sd * 1.18, 2.12, 0); g.add(cap2); }
-  const beamTex = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 32; const x = c.getContext('2d'); x.fillStyle = '#ffd23f'; x.fillRect(0, 0, 256, 32);
+  const beamTex = (() => { const [c, x] = hiCanvas(256, 32); x.fillStyle = '#ffd23f'; x.fillRect(0, 0, 256, 32);
     x.fillStyle = '#1d2636'; for (let i = -2; i < 18; i++) { x.beginPath(); x.moveTo(i * 18, 32); x.lineTo(i * 18 + 9, 32); x.lineTo(i * 18 + 25, 0); x.lineTo(i * 18 + 16, 0); x.fill(); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const beam = withOutline(new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.34, 0.4), [wood, wood, wood, wood, toon('#ffffff', { map: beamTex }), wood]), 0.025); beam.position.y = 1.82; g.add(beam);
@@ -676,7 +679,7 @@ const RAMP = (() => {
   const g = new THREE.Group();
   const sh = new THREE.Shape(); sh.moveTo(-2, 0); sh.lineTo(-2, 0.06); sh.lineTo(2, 1.15); sh.lineTo(2, 0); sh.lineTo(-2, 0);
   const rg = new THREE.ExtrudeGeometry(sh, { depth: 2.2, bevelEnabled: false }); rg.rotateY(Math.PI / 2); rg.translate(-1.1, 0, 0);
-  const plank = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#c58a4f'; x.fillRect(0, 0, 64, 256);
+  const plank = (() => { const [c, x] = hiCanvas(64, 256); x.fillStyle = '#c58a4f'; x.fillRect(0, 0, 64, 256);
     x.fillStyle = '#9a6634'; for (let i = 0; i < 256; i += 32) x.fillRect(0, i, 64, 3);
     x.fillStyle = '#ffd23f'; for (let i = 0; i < 3; i++) { const y = 40 + i * 70; x.beginPath(); x.moveTo(10, y + 26); x.lineTo(32, y); x.lineTo(54, y + 26); x.lineTo(44, y + 26); x.lineTo(32, y + 12); x.lineTo(20, y + 26); x.fill(); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
@@ -859,7 +862,7 @@ function updateCanyon(dt) {
 // Münzen: geprägter Goldtaler mit erhabenem Rand und Stern, Cartoon-Kontur und wanderndem Glanzstreif (eine Instanz-Gruppe)
 const COIN_N = 320, COIN_R = 0.4, COIN_POP = 0.24;
 const coinTex = (() => {
-  const S = 256, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const S = 256, m = S / 2, [c, x] = hiCanvas(S, S);
   const disc = (r, fill) => { x.fillStyle = fill; x.beginPath(); x.arc(m, m, r, 0, TAU); x.fill(); };
   const rg = (r0, r1, a, b, ox, oy) => { const g = x.createRadialGradient(m + ox, m + oy, r0, m, m, r1); g.addColorStop(0, a); g.addColorStop(1, b); return g; };
   x.fillStyle = '#b86f00'; x.fillRect(0, 0, S, S);                       // Kante (der schmale Außenring landet auf der Münzkante)
@@ -869,7 +872,7 @@ const coinTex = (() => {
   const star = (ox, oy, r, fill) => { x.fillStyle = fill; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.46 : r; x.lineTo(m + ox + Math.cos(a) * rr, m + oy + Math.sin(a) * rr); } x.closePath(); x.fill(); };
   star(5, 6, m * 0.5, '#b97500'); star(-3, -3, m * 0.5, '#fff8d0'); star(0, 0, m * 0.47, '#ffc928'); // geprägt: Schatten, Licht, Fläche
   x.fillStyle = 'rgba(255,255,255,.8)'; x.beginPath(); x.ellipse(m * 0.52, m * 0.46, m * 0.13, m * 0.055, -0.75, 0, TAU); x.fill();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MAX_ANISO; return t;
 })();
 const coinGeo = (() => {
   const R = COIN_R, T = 0.065, F = 0.04, V = (r, y) => new THREE.Vector2(r, y);
@@ -904,7 +907,7 @@ const coinOutline = new THREE.InstancedMesh(coinGeo, new THREE.ShaderMaterial({
 coinOutline.instanceMatrix = coinMesh.instanceMatrix; coinOutline.frustumCulled = false; scene.add(coinOutline);
 // Lichtblitz beim Einsammeln: weicher Schein mit Strahlen (einige Sprites, werden reihum vergeben)
 const flashTex = (() => {
-  const S = 128, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const S = 128, m = S / 2, [c, x] = hiCanvas(S, S);
   const g = x.createRadialGradient(m, m, 0, m, m, m); g.addColorStop(0, 'rgba(255,255,235,1)'); g.addColorStop(0.18, 'rgba(255,236,150,.85)'); g.addColorStop(0.45, 'rgba(255,200,60,.25)'); g.addColorStop(1, 'rgba(255,190,40,0)');
   x.fillStyle = g; x.fillRect(0, 0, S, S);
   x.translate(m, m); x.fillStyle = 'rgba(255,248,200,.9)';
@@ -959,7 +962,7 @@ function clearFlyers() { for (const f of flyers) { f.el.hidden = true; flyPool.p
 const PW = { magnet: { dur: 10, col: '#ff5a6e' }, shield: { dur: 15, col: '#5fd0ff' }, kite: { dur: 6, col: '#ffcc33' } };
 const pw = { magnet: 0, shield: 0, kite: 0, grace: 0 };
 function iconTex(type) {
-  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const [c, x] = hiCanvas(128, 128);
   x.lineCap = x.lineJoin = 'round'; x.translate(64, 64);
   if (type === 'magnet') {
     x.lineWidth = 30; x.strokeStyle = '#0d2a4a'; x.beginPath(); x.arc(0, -4, 30, Math.PI, 0); x.lineTo(30, 34); x.moveTo(-30, -4); x.lineTo(-30, 34); x.stroke();
@@ -1004,7 +1007,7 @@ shieldMesh.visible = false; scene.add(shieldMesh);
 // Drachen: bunter Lenkdrachen mit Leinen zu den Händen
 const kite = (() => {
   const g = new THREE.Group();
-  const kc = document.createElement('canvas'); kc.width = 256; kc.height = 128; const x = kc.getContext('2d');
+  const [kc, x] = hiCanvas(256, 128);
   ['#ff4d4d', '#ffcc33', '#ffffff', '#2fa3ff', '#ffffff', '#ffcc33', '#ff4d4d'].forEach((c, i) => { x.fillStyle = c; x.fillRect(i * 256 / 7, 0, 256 / 7 + 1, 128); });
   const kt = new THREE.CanvasTexture(kc); kt.colorSpace = THREE.SRGBColorSpace;
   const sh = new THREE.Shape(); sh.moveTo(-1.7, 0.2); sh.bezierCurveTo(-1.4, 1.1, 1.4, 1.1, 1.7, 0.2); sh.bezierCurveTo(1.1, 0.55, -1.1, 0.55, -1.7, 0.2);
@@ -1165,7 +1168,7 @@ function makeSailboat(stripe) {
   const hull = withOutline(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 3.2, 4, 10).rotateX(Math.PI / 2).scale(1, 0.5, 1), toon('#f4f1e8')), 0.03); hull.position.y = 0.1; g.add(hull);
   const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 3.2), toon('#b07a4a')); deck.position.y = 0.42; g.add(deck);
   const mast = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 6.5, 6), toon('#e8e2d4')), 0.02); mast.position.set(0, 3.6, -0.4); g.add(mast);
-  const sc = document.createElement('canvas'); sc.width = 64; sc.height = 128; const x = sc.getContext('2d'); x.fillStyle = '#fbfaf5'; x.fillRect(0, 0, 64, 128); x.fillStyle = stripe; x.fillRect(0, 70, 64, 18); x.fillRect(0, 96, 64, 8);
+  const [sc, x] = hiCanvas(64, 128); x.fillStyle = '#fbfaf5'; x.fillRect(0, 0, 64, 128); x.fillStyle = stripe; x.fillRect(0, 70, 64, 18); x.fillRect(0, 96, 64, 8);
   const st = new THREE.CanvasTexture(sc); st.colorSpace = THREE.SRGBColorSpace;
   const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0, 6); sh.quadraticCurveTo(1.4, 2.6, 2.6, 0); sh.lineTo(0, 0);
   const sg = new THREE.ShapeGeometry(sh); const uv = sg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 2.6, uv.getY(i) / 6);
@@ -1755,7 +1758,7 @@ function warmUp() {
   renderer.setRenderTarget(null);
   const tex = new Set();
   for (const root of [scene, tmp]) root.traverse(o => { if (o.material) for (const m of [].concat(o.material)) for (const k of ['map', 'gradientMap', 'alphaMap']) if (m[k]) tex.add(m[k]); });
-  for (const t of tex) renderer.initTexture(t);
+  for (const t of tex) { if (t !== toonRamp && !t.isDataTexture) { t.anisotropy = MAX_ANISO; t.needsUpdate = true; } renderer.initTexture(t); } // scharf auch flach von der Seite gesehen
 }
 applyTier();
 resize();
