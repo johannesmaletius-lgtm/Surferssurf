@@ -346,17 +346,20 @@ const bakeOne = mesh => bake(new THREE.Group().add(mesh));
 function makeBoard() {
   const sh = new THREE.Shape(), L = 2.2, W = 0.29;
   const halfW = v => v < 0.42 ? lerp(0.62, 1, Math.sin(v / 0.42 * Math.PI / 2)) : Math.pow(Math.max(0, Math.cos((v - 0.42) / 0.58 * Math.PI / 2)), 0.7);
-  const N = 30; const pts = [];
+  const N = 72; const pts = []; // fein genug für eine glatte Umrisslinie
   for (let i = 0; i <= N; i++) { const v = i / N; pts.push([halfW(v) * W, v * L - 0.6]); }
   sh.moveTo(-pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) sh.lineTo(-pts[i][0], pts[i][1]);
   for (let i = pts.length - 2; i >= 0; i--) sh.lineTo(pts[i][0], pts[i][1]);
-  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.035, bevelSegments: 4, curveSegments: 8 });
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.035, bevelSegments: 8, curveSegments: 8 });
   g.rotateX(-Math.PI / 2); g.translate(0, 0.03, 0); // Spitze zeigt nach -Z
   // Nase leicht hochgebogen (Rocker)
   const pa = g.attributes.position;
   for (let i = 0; i < pa.count; i++) { const z = pa.getZ(i); if (z < -0.9) pa.setY(i, pa.getY(i) + Math.pow((-0.9 - z) / 0.7, 2) * 0.13); if (z > 0.45) pa.setY(i, pa.getY(i) + Math.pow((z - 0.45) / 0.2, 2) * 0.02); }
-  g.computeVertexNormals();
+  // weiche Normalen über die runden Kanten (die Geometrie hat je Fläche eigene Punkte): glatte Rails statt Facetten
+  { g.computeVertexNormals(); const na = g.attributes.normal, acc = new Map(), key = i => Math.round(pa.getX(i) * 2e3) + ',' + Math.round(pa.getY(i) * 2e3) + ',' + Math.round(pa.getZ(i) * 2e3);
+    for (let i = 0; i < pa.count; i++) { const k = key(i), v = acc.get(k) || acc.set(k, [0, 0, 0]).get(k); v[0] += na.getX(i); v[1] += na.getY(i); v[2] += na.getZ(i); }
+    for (let i = 0; i < pa.count; i++) { const v = acc.get(key(i)), l = Math.hypot(v[0], v[1], v[2]) || 1; na.setXYZ(i, v[0] / l, v[1] / l, v[2] / l); } }
   const deckTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#f6ecd2'; x.fillRect(0, 0, 64, 256); x.fillStyle = '#34a3ec'; x.fillRect(28, 0, 8, 256); x.fillStyle = '#ff6b4a'; x.fillRect(22, 0, 3, 256); x.fillRect(39, 0, 3, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   // UV entlang der Länge für den Streifen
   const uv = new Float32Array(pa.count * 2); for (let i = 0; i < pa.count; i++) { uv[i * 2] = pa.getX(i) / (W * 2) + 0.5; uv[i * 2 + 1] = (pa.getZ(i) + 1.6) / 2.2; }
@@ -396,11 +399,16 @@ blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 const P = { x: 0, lane: 0, fromX: 0, toX: 0, laneT: 1, z: 0, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, trickT: 0, flinch: 0, duck: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-const poseState = { t: 0, dt: 0, lean: 0, air: false, airT: 0, kite: false, landT: 0, duck: 0, trick: null, trickT: 0 };
+const poseState = { t: 0, dt: 0, lean: 0, air: false, airT: 0, vy: 0, speed: 14, kite: false, duck: 0, trick: null, trickT: 0, idle: false, crashT: -1, wet: false, rot: 0, coins: 0, pw: 0, bump: 0 };
 function pose(t, dt) {
   const st = poseState;
-  st.t = t; st.dt = dt; st.lean = P.lean; st.air = P.air; st.airT = P.airT; st.kite = pw.kite > 0 && state === 'play'; st.landT = P.landT;
+  st.t = t; st.dt = dt; st.lean = P.lean; st.air = P.air; st.airT = P.airT; st.vy = P.vy; st.speed = P.speed; st.kite = pw.kite > 0 && state === 'play';
   st.duck = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0; st.trick = P.trick; st.trickT = P.trickT;
+  st.idle = state === 'ready'; st.crashT = state === 'crash' ? crashT : -1; st.wet = !!CR.wet; st.rot = CR.rot;
+  // kurze Reaktionen: Münze, Power-up, am Rand angestoßen
+  if (runCoins > st.coins) surfer.react('coin'); st.coins = runCoins;
+  const pwSum = pw.magnet + pw.shield + pw.kite; if (pwSum > st.pw + 0.5) surfer.react('power'); st.pw = pwSum;
+  const bump = P.bump || 0; if (bump && !st.bump) surfer.react('bump', Math.sign(bump)); st.bump = bump;
   surfer.pose(st);
 }
 
@@ -1533,7 +1541,7 @@ function syncScene(dt) {
     player.rotation.y = -P.lean * 0.25 + spin;
     pose(time, dt);
   } else {
-    surfer.root.position.copy(CR.body); surfer.root.rotation.set(CR.wet ? -CR.rot : CR.rot * 0.7, 0, CR.wet ? Math.sin(time * 3) * 0.15 : CR.rot); board.position.copy(CR.board); if (CR.wet) pose(time, dt);
+    surfer.root.position.copy(CR.body); board.position.copy(CR.board); pose(time, dt); // Sturz: surfer.js dreht und bewegt ihn
     player.rotation.set(0, 0, 0);
   }
   shieldMesh.visible = pw.shield > 0 && state === 'play' && (pw.shield > 2 || Math.floor(time * 8) % 2 === 0);
