@@ -34,10 +34,10 @@ const MAX_DPR = Math.min(window.devicePixelRatio || 1, 2);
 const GPU_NAME = (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) { return ''; } })();
 const SOFTWARE_GL = /swiftshader|llvmpipe|software|basic render/i.test(GPU_NAME);
 const WEAK = SOFTWARE_GL || (navigator.deviceMemory && navigator.deviceMemory <= 3) || (COARSE && (navigator.hardwareConcurrency || 8) <= 4) || /Mali-[GT][0-7]\d\b|Adreno \(TM\) [3-5]\d\d|PowerVR/i.test(GPU_NAME);
-const LADDER = [[0, 0.7], [0, 0.85], [0, 1], [1, 1], [1, 1.25], [1, 1.5], [2, 1.5], [2, 2]].map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
+const LADDER = (SOFTWARE_GL ? [[0, 0.7], [0, 0.85]] : []).concat([[0, 1], [0, 1.25], [1, 1.25], [1, 1.5], [1, 1.75], [2, 1.75], [2, 2]]).map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
   .filter((l, i, a) => i === 0 || l[0] !== a[i - 1][0] || l[1] !== a[i - 1][1]);
 const levelFor = (t, d) => { let best = 0; LADDER.forEach(([lt, ld], i) => { if (lt <= t && ld <= d + 1e-6) best = i; }); return best; };
-let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1) : COARSE ? levelFor(1, 1.5) : levelFor(2, MAX_DPR);
+let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1.25) : COARSE ? levelFor(1, MAX_DPR) : levelFor(2, MAX_DPR);
 let tier = LADDER[qLevel][0], pixelRatio = LADDER[qLevel][1];
 renderer.setPixelRatio(pixelRatio);
 
@@ -227,6 +227,16 @@ const waterMat = new THREE.ShaderMaterial({
       // breiter, weicher Sonnenglanz (keine Glitzerpunkte)
       float sp = max(dot(R, uSun), 0.);
       col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05) * uSpec;
+      // helle Wellenkämme: Licht fällt auf die Vorderseite
+      col += uShallow * smoothstep(.55, 1.05, h) * .18 * (1. - lagoon);
+      #ifndef LOWQ
+      // Glitzern: kleine funkelnde Sonnenblitze, die auf den Wellen tanzen (in der Nähe und mittleren Ferne)
+      float gd = length(vWorld.xz - uCam.xz), gmask = (1. - smoothstep(25., 140., gd)) * smoothstep(3., 9., gd);
+      vec2 gc = xz * 1.6 + vec2(0., uTime * .6); vec2 gi = floor(gc), gf = fract(gc) - .5;
+      float gr = hash(gi), tw = pow(max(sin(uTime * (3. + gr * 5.) + gr * 40.), 0.), 6.);
+      float star = smoothstep(.09, 0., length(gf - (vec2(hash(gi + 3.1), hash(gi + 7.7)) - .5) * .6)) * step(.6, gr);
+      col += uSunCol * star * tw * gmask * pow(max(dot(R, uSun), 0.), 3.) * 2.2 * uSpec;
+      #endif
       // Schaum auf hohen Kämmen
       #ifdef LOWQ
       float fn = noise(xz * .9 + uTime * .2), lace = noise(xz * 2.2 + vec2(uTime * .3, 0.));
@@ -257,7 +267,10 @@ scene.add(water);
 /* =========================================================================
    Materialien: Cartoon-Licht mit dunkler Kontur
    ========================================================================= */
-const toonRamp = (() => { const d = new Uint8Array([70, 140, 205, 255]); const t = new THREE.DataTexture(d, 4, 1, THREE.RedFormat); t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t; })();
+// weiche Cartoon-Stufen: drei Bänder mit sanftem Übergang (wirkt hochwertiger als harte, treppige Kanten)
+const toonRamp = (() => { const N = 64, d = new Uint8Array(N), st = [[0, 88], [0.32, 150], [0.6, 212], [0.86, 255]];
+  for (let i = 0; i < N; i++) { const x = i / (N - 1); let v = st[0][1]; for (let k = 1; k < st.length; k++) v = lerp(v, st[k][1], smooth01((x - st[k][0]) / 0.07 + 0.5)); d[i] = v; }
+  const t = new THREE.DataTexture(d, N, 1, THREE.RedFormat); t.minFilter = t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t; })();
 const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp, ...extra });
 const OUTLINE = new THREE.ShaderMaterial({
   uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTh: { value: 0.022 }, uCol: { value: new THREE.Color('#0a1020') } }]),
@@ -506,15 +519,24 @@ function updateMountains() {
 
 // Bojenleinen am Rand des Spielbereichs
 const BUOY_N = 70;
-const buoys = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 12, 8), toon('#ffffff'), BUOY_N * 2);
+const buoys = new THREE.InstancedMesh(new THREE.SphereGeometry(0.15, 16, 10).scale(1, 0.72, 1.25), toon('#ffffff'), BUOY_N * 2);
 buoys.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BUOY_N * 2 * 3), 3);
 { const cR = new THREE.Color('#ff4a3a'), cW = new THREE.Color('#ffffff'); for (let i = 0; i < BUOY_N * 2; i++) buoys.setColorAt(i, (i >> 1) % 2 ? cR : cW); }
 buoys.frustumCulled = false; scene.add(buoys);
+// Leine zwischen den Bojen, hängt leicht durch
+const ROPE_SUB = 3, ropePos = new Float32Array(2 * ((BUOY_N - 1) * ROPE_SUB + 1) * 3), ropeGeo = new THREE.BufferGeometry();
+ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3).setUsage(THREE.DynamicDrawUsage));
+{ const idx = [], n = (BUOY_N - 1) * ROPE_SUB + 1; for (let sd = 0; sd < 2; sd++) for (let i = 0; i < n - 1; i++) idx.push(sd * n + i, sd * n + i + 1); ropeGeo.setIndex(idx); }
+const rope = new THREE.LineSegments(ropeGeo, new THREE.LineBasicMaterial({ color: '#f4e2b8', transparent: true, opacity: 0.85 })); rope.frustumCulled = false; scene.add(rope);
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
 function updateBuoys() {
   const z0 = Math.floor(P.z / 2.5) * 2.5 + 8;
   for (let i = 0; i < BUOY_N; i++) { const z = z0 - i * 2.5; for (const sd of [0, 1]) { const x = sd ? EDGE : -EDGE; _p.set(x, waveH(x, z, 3) + 0.05, z); _m4.compose(_p, _q, _s); buoys.setMatrixAt(i * 2 + sd, _m4); } }
   buoys.instanceMatrix.needsUpdate = true;
+  const n = (BUOY_N - 1) * ROPE_SUB + 1;
+  for (let sd = 0; sd < 2; sd++) { const x = sd ? EDGE : -EDGE; for (let j = 0; j < n; j++) { const z = z0 - j * 2.5 / ROPE_SUB, f = (j % ROPE_SUB) / ROPE_SUB, o = (sd * n + j) * 3;
+    ropePos[o] = x; ropePos[o + 1] = waveH(x, z, 3) + 0.05 - Math.sin(f * Math.PI) * 0.05; ropePos[o + 2] = z; } }
+  ropeGeo.attributes.position.needsUpdate = true;
 }
 
 // Hindernisse
@@ -1175,7 +1197,7 @@ const partMat = new THREE.ShaderMaterial({
       // dicht vor der Kamera ausblenden und Größe begrenzen – sonst blitzen riesige Flecken übers Bild
       vC.a *= smoothstep(1.2, 3., z);
       gl_PointSize = min(size * uScale / z, uScale * .06); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `varying vec4 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = length(d); float a = smoothstep(.5, .2, r); vec3 c = vC.rgb + (1. - smoothstep(0., .35, length(d + vec2(.12, .12)))) * .25; gl_FragColor = vec4(c, a * vC.a);
+  fragmentShader: `varying vec4 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = length(d); float a = exp(-r * r * 14.) * smoothstep(.5, .38, r); vec3 c = vC.rgb * (.88 + .12 * smoothstep(.5, 0., length(d - vec2(.1, .1)))) + (1. - smoothstep(0., .3, length(d + vec2(.13, .13)))) * .3; gl_FragColor = vec4(c, a * vC.a);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     }`,
@@ -1208,6 +1230,29 @@ function updateParts(dt) {
   }
   partGeo.setDrawRange(0, partCount);
   for (const a of PART_ATTRS) partGeo.attributes[a].needsUpdate = true;
+}
+
+/* ---------- Fahrtwind: feine Luftstreifen, die mit dem Tempo deutlicher werden ---------- */
+const WIND_N = 30, windGeo = new THREE.BufferGeometry(), wiPos = new Float32Array(WIND_N * 6), wiA = new Float32Array(WIND_N * 2), winds = [];
+windGeo.setAttribute('position', new THREE.BufferAttribute(wiPos, 3).setUsage(THREE.DynamicDrawUsage));
+windGeo.setAttribute('alpha', new THREE.BufferAttribute(wiA, 1).setUsage(THREE.DynamicDrawUsage));
+const windMat = new THREE.ShaderMaterial({ uniforms: { uO: { value: 0 } },
+  vertexShader: `attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: `uniform float uO; varying float vA; void main(){ gl_FragColor = vec4(1., 1., 1., vA * uO); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+const windLines = new THREE.LineSegments(windGeo, windMat); windLines.frustumCulled = false; windLines.renderOrder = 4; scene.add(windLines);
+function placeWind(w, z) { const a = rand(TAU), r = rand(2.2, 7); w.x = Math.cos(a) * r * 1.3; w.y = 1.8 + Math.sin(a) * r * 0.55; w.z = z; w.a = rand(0.25, 0.7); w.l = rand(0.6, 1.4); }
+for (let i = 0; i < WIND_N; i++) { const w = {}; placeWind(w, rand(-40, 6)); winds.push(w); }
+function updateWind(dt) {
+  const k = state === 'play' ? clamp((P.speed - 15) / 13, 0, 1) : 0, flyK = pw.kite > 0 && state === 'play' ? 1 : 0;
+  windMat.uniforms.uO.value = damp(windMat.uniforms.uO.value, Math.max(k, flyK) * (tier === 0 ? 0.3 : 0.45), 3, dt);
+  windLines.visible = windMat.uniforms.uO.value > 0.01; if (!windLines.visible) return;
+  const len = 1.2 + P.speed * 0.12;
+  winds.forEach((w, i) => { if (w.z > 7) placeWind(w, rand(-45, -25)); w.z += P.speed * dt * 0.35; // relativ zum Surfer, kommt schneller entgegen
+    const x = P.x * 0.6 + w.x, y = P.y * 0.4 + w.y, z = P.z + w.z, o = i * 6;
+    wiPos[o] = x; wiPos[o + 1] = y; wiPos[o + 2] = z - len * w.l; wiPos[o + 3] = x; wiPos[o + 4] = y; wiPos[o + 5] = z;
+    const fade = smooth01((w.z + 45) / 12) * smooth01((7 - w.z) / 4); wiA[i * 2] = 0; wiA[i * 2 + 1] = w.a * fade; });
+  windGeo.attributes.position.needsUpdate = windGeo.attributes.alpha.needsUpdate = true;
 }
 
 /* ---------- Kielwelle: zwei Schaumbänder, folgen der gefahrenen Linie ---------- */
@@ -1469,6 +1514,9 @@ function update(dt) {
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
       for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), sprayCol()); }
+      // Kurve: Gischtfahne fliegt zur Außenseite hoch
+      const carve = Math.abs(P.lean); if (state === 'play' && carve > 0.18) { const sd = -Math.sign(P.lean), m = Math.floor(carve * 9 * Math.min(partCap / PART_N * 1.5, 1));
+        for (let i = 0; i < m; i++) addPart(P.x + sd * rand(0.2, 0.45), P.y + 0.08, P.z + rand(0.2, 0.9), sd * rand(2.5, 6) * carve, rand(2.5, 5.5) * (0.5 + carve), rand(-P.speed * 0.25, 0.3), rand(0.35, 0.7), rand(0.07, 0.16), i % 3 ? '#ffffff' : '#d8f6ff'); }
       if (Math.random() < 0.6) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.4, P.y + 0.15, P.z + rand(0.3, 1), sd * rand(0.5, 1.5), rand(0.5, 1.2), rand(-P.speed * 0.2, 0), rand(0.5, 0.9), rand(0.25, 0.45), '#eafcff', 2); }
     }
     if (play) {
@@ -1564,7 +1612,7 @@ function syncScene(dt) {
   }
   for (let i = nf; i < coinFlashes.length; i++) coinFlashes[i].visible = false;
   coinMesh.count = coinOutline.count = n; coinMesh.instanceMatrix.needsUpdate = true; _s.set(1, 1, 1);
-  updateBuoys(); updateWake();
+  updateBuoys(); updateWake(); updateWind(dt);
   // Wasser und ferne Kulisse folgen der Kamera
   water.position.set(Math.round(P.x / 0.5) * 0.5, 0, Math.round(P.z / 0.5) * 0.5);
   sky.position.copy(camera.position);
@@ -1589,6 +1637,7 @@ function syncScene(dt) {
   }
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
+  camState.roll = damp(camState.roll || 0, state === 'play' ? -P.lean * 0.05 : 0, 6, dt); camera.rotateZ(camState.roll);
   if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride, l = surf3d.lookOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]);
     if (surf3d.lookAtGull) camera.lookAt(gulls[0].m.position); else if (l) camera.lookAt(P.x + l[0], l[1], P.z + l[2]); else camera.lookAt(P.x, P.y + 1.0, P.z); }
   const fovT = lerp(76, 58, ka) + clamp((P.speed - 14) / 16, 0, 1) * 6;
