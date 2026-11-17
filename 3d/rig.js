@@ -5,7 +5,10 @@
 // y-Achse = Richtung des Glieds, x-Achse = Bezugsrichtung (z. B. wohin das Knie zeigt), z = x × y.
 // Das Modell steht in Ruhe aufrecht, Blick nach -Z, rechte Körperseite bei +X, Arme leicht abgespreizt.
 
-export const BONES = ['pelvis', 'spine', 'chest', 'neck', 'head', 'upL', 'loL', 'handL', 'upR', 'loR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR'];
+// Dazu Hilfsknochen: knee*/elb* drehen nur halb mit (Gelenke knicken nicht ein), hair*/hem* schwingen nach
+// (Haare, Hosenbeine), lids schließt die Augen.
+export const BONES = ['pelvis', 'spine', 'chest', 'neck', 'head', 'upL', 'loL', 'handL', 'upR', 'loR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR',
+  'kneeL', 'kneeR', 'elbL', 'elbR', 'hairB', 'hairL', 'hairR', 'hemL', 'hemR', 'lids'];
 export const BONE = Object.fromEntries(BONES.map((b, i) => [b, i]));
 
 // Gliedlängen (passen zur Zwei-Glied-IK im Spiel)
@@ -14,6 +17,10 @@ export const LEN = { thigh: 0.46, shin: 0.46, upper: 0.31, lower: 0.28 };
 export const HIP_OFS = [0.11, -0.05, 0];      // Hüftgelenk rechts (links gespiegelt)
 export const SHOULDER_OFS = [0.225, -0.02, 0]; // Schultergelenk rechts
 export const ANKLE_H = 0.07;                    // Knöchel über der Fußsohle
+// Drehpunkte der Hilfsknochen in der Lage ihres Elternknochens (Kopf bzw. Oberschenkel)
+export const HAIR_PIVOT = { hairB: [0, -0.02, 0.13], hairL: [-0.125, 0.0, 0.03], hairR: [0.125, 0.0, 0.03] };
+export const HEM_PIVOT = [0, 0.2, 0];
+export const EYE_PIVOT = [0, 0.023, -0.1244];      // Achse durch beide Augen (für den Lidschlag)
 
 const ARM_A = 50 * Math.PI / 180; // Ruhehaltung der Arme: 50° vom Lot
 const armDir = s => [s * Math.sin(ARM_A), -Math.cos(ARM_A), 0];
@@ -34,6 +41,8 @@ export const REST = (() => {
     J['footY' + k] = [0, 1, 0];
   }
   J.pelvisX = [1, 0, 0]; J.pelvisY = [0, 1, 0]; J.chestX = [1, 0, 0]; J.headX = [1, 0, 0]; J.headY = [0, 1, 0];
+  // Nachschwingen: je [Drehung um x, um z] in Bogenmaß; blink 0..1
+  J.hairB = [0, 0]; J.hairL = [0, 0]; J.hairR = [0, 0]; J.hemL = [0, 0]; J.hemR = [0, 0]; J.blink = 0;
   return J;
 })();
 
@@ -69,8 +78,34 @@ export function boneFrames(J, out = new Float32Array(BONES.length * 16)) {
     basis(out, BONE['thigh' + k], hp, sub(kn, hp), n);
     basis(out, BONE['shin' + k], kn, sub(ft, kn), n);
     basis(out, BONE['foot' + k], ft, J['footY' + k], J['footX' + k]);
+    joint(out, BONE['knee' + k], hp, kn, ft, n, 0.05);
+    joint(out, BONE['elb' + k], sh, el, hd, e, 0.022);
+    child(out, BONE['hem' + k], BONE['thigh' + k], HEM_PIVOT, J['hem' + k][0], J['hem' + k][1]);
   }
+  for (const h in HAIR_PIVOT) child(out, BONE[h], BONE.head, HAIR_PIVOT[h], J[h][0], J[h][1]);
+  child(out, BONE.lids, BONE.head, EYE_PIVOT, (J.blink || 0) * LID_ANGLE, 0);
   return out;
+}
+export const LID_ANGLE = -1.25;
+// Gelenk-Hilfsknochen: sitzt im Gelenk b, zeigt in die Mitte zwischen beiden Gliedern und rückt beim Beugen
+// etwas nach außen – so bleibt das Volumen von Knie und Ellbogen erhalten
+function joint(out, i, a, b, c, n, push) {
+  let u0 = b[0] - a[0], u1 = b[1] - a[1], u2 = b[2] - a[2], l = Math.hypot(u0, u1, u2) || 1; u0 /= l; u1 /= l; u2 /= l;
+  let w0 = c[0] - b[0], w1 = c[1] - b[1], w2 = c[2] - b[2]; l = Math.hypot(w0, w1, w2) || 1; w0 /= l; w1 /= l; w2 /= l;
+  const bend = (1 - (u0 * w0 + u1 * w1 + u2 * w2)) * 0.5 * push;
+  let y0 = u0 + w0, y1 = u1 + w1, y2 = u2 + w2; if (y0 * y0 + y1 * y1 + y2 * y2 < 1e-6) { y0 = u0; y1 = u1; y2 = u2; }
+  _p[0] = b[0] + n[0] * bend; _p[1] = b[1] + n[1] * bend; _p[2] = b[2] + n[2] * bend; _y[0] = y0; _y[1] = y1; _y[2] = y2;
+  basis(out, i, _p, _y, n);
+}
+const _p = [0, 0, 0], _y = [0, 0, 0];
+// Kindknochen: Lage des Elternknochens, um den Drehpunkt pv (in dessen Lage) um x und z gedreht
+function child(out, i, par, pv, rx, rz) {
+  const m = par * 16, o = i * 16, cx = Math.cos(rx), sx = Math.sin(rx), cz = Math.cos(rz), sz = Math.sin(rz);
+  // R = Rz · Rx (Spalten)
+  const r = [cz, sz, 0, -sz * cx, cz * cx, sx, sz * sx, -cz * sx, cx];
+  for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) out[o + c * 4 + k] = out[m + k] * r[c * 3] + out[m + 4 + k] * r[c * 3 + 1] + out[m + 8 + k] * r[c * 3 + 2];
+  out[o + 3] = out[o + 7] = out[o + 11] = 0; out[o + 15] = 1;
+  for (let k = 0; k < 3; k++) out[o + 12 + k] = out[m + k] * pv[0] + out[m + 4 + k] * pv[1] + out[m + 8 + k] * pv[2] + out[m + 12 + k];
 }
 
 // Punkt aus der Lage eines Knochens in den Raum des Surfers (für Hüft- und Schultergelenke)

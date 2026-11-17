@@ -13,6 +13,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const damp = (a, b, k, dt) => lerp(a, b, 1 - Math.exp(-k * dt));
 const rand = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+// Texturen in 4-facher Auflösung zeichnen (gleiche Koordinaten, nur schärfer) – wirkt auf HD-Bildschirmen nicht verwaschen
+const HI = 4; function hiCanvas(w, h) { const c = document.createElement('canvas'); c.width = w * HI; c.height = h * HI; const x = c.getContext('2d'); x.scale(HI, HI); return [c, x]; }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const smooth01 = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const $ = id => document.getElementById(id);
@@ -34,12 +36,13 @@ const MAX_DPR = Math.min(window.devicePixelRatio || 1, 2);
 const GPU_NAME = (() => { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) { return ''; } })();
 const SOFTWARE_GL = /swiftshader|llvmpipe|software|basic render/i.test(GPU_NAME);
 const WEAK = SOFTWARE_GL || (navigator.deviceMemory && navigator.deviceMemory <= 3) || (COARSE && (navigator.hardwareConcurrency || 8) <= 4) || /Mali-[GT][0-7]\d\b|Adreno \(TM\) [3-5]\d\d|PowerVR/i.test(GPU_NAME);
-const LADDER = [[0, 0.7], [0, 0.85], [0, 1], [1, 1], [1, 1.25], [1, 1.5], [2, 1.5], [2, 2]].map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
+const LADDER = (SOFTWARE_GL ? [[0, 0.7], [0, 0.85], [0, 1]] : []).concat([[0, 1.25], [0, 1.5], [1, 1.5], [1, 1.75], [1, 2], [2, 2]]) // bei Ruckeln zuerst Effekte sparen, Auflösung bleibt HD.map(([t, d]) => [t, Math.min(d, Math.max(1, MAX_DPR))])
   .filter((l, i, a) => i === 0 || l[0] !== a[i - 1][0] || l[1] !== a[i - 1][1]);
 const levelFor = (t, d) => { let best = 0; LADDER.forEach(([lt, ld], i) => { if (lt <= t && ld <= d + 1e-6) best = i; }); return best; };
-let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1) : COARSE ? levelFor(1, 1.5) : levelFor(2, MAX_DPR);
+let qLevel = QUERY.has('q') ? levelFor(+QUERY.get('q'), MAX_DPR) : WEAK ? levelFor(0, 1.25) : COARSE ? levelFor(1, MAX_DPR) : levelFor(2, MAX_DPR);
 let tier = LADDER[qLevel][0], pixelRatio = LADDER[qLevel][1];
 renderer.setPixelRatio(pixelRatio);
+const MAX_ANISO = Math.min(16, renderer.capabilities.getMaxAnisotropy());
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.3, 4000); // nicht zu nah: genauere Tiefe, kein Flimmern an fernen Stränden
@@ -227,6 +230,16 @@ const waterMat = new THREE.ShaderMaterial({
       // breiter, weicher Sonnenglanz (keine Glitzerpunkte)
       float sp = max(dot(R, uSun), 0.);
       col += uSunCol * (pow(sp, 300.) * .9 + pow(sp, 40.) * .05) * uSpec;
+      // helle Wellenkämme: Licht fällt auf die Vorderseite
+      col += uShallow * smoothstep(.55, 1.05, h) * .18 * (1. - lagoon);
+      #ifndef LOWQ
+      // Glitzern: kleine funkelnde Sonnenblitze, die auf den Wellen tanzen (in der Nähe und mittleren Ferne)
+      float gd = length(vWorld.xz - uCam.xz), gmask = (1. - smoothstep(25., 140., gd)) * smoothstep(3., 9., gd);
+      vec2 gc = xz * 1.6 + vec2(0., uTime * .6); vec2 gi = floor(gc), gf = fract(gc) - .5;
+      float gr = hash(gi), tw = pow(max(sin(uTime * (3. + gr * 5.) + gr * 40.), 0.), 6.);
+      float star = smoothstep(.09, 0., length(gf - (vec2(hash(gi + 3.1), hash(gi + 7.7)) - .5) * .6)) * step(.6, gr);
+      col += uSunCol * star * tw * gmask * pow(max(dot(R, uSun), 0.), 3.) * 2.2 * uSpec;
+      #endif
       // Schaum auf hohen Kämmen
       #ifdef LOWQ
       float fn = noise(xz * .9 + uTime * .2), lace = noise(xz * 2.2 + vec2(uTime * .3, 0.));
@@ -257,7 +270,10 @@ scene.add(water);
 /* =========================================================================
    Materialien: Cartoon-Licht mit dunkler Kontur
    ========================================================================= */
-const toonRamp = (() => { const d = new Uint8Array([70, 140, 205, 255]); const t = new THREE.DataTexture(d, 4, 1, THREE.RedFormat); t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t; })();
+// weiche Cartoon-Stufen: drei Bänder mit sanftem Übergang (wirkt hochwertiger als harte, treppige Kanten)
+const toonRamp = (() => { const N = 64, d = new Uint8Array(N), st = [[0, 88], [0.32, 150], [0.6, 212], [0.86, 255]];
+  for (let i = 0; i < N; i++) { const x = i / (N - 1); let v = st[0][1]; for (let k = 1; k < st.length; k++) v = lerp(v, st[k][1], smooth01((x - st[k][0]) / 0.07 + 0.5)); d[i] = v; }
+  const t = new THREE.DataTexture(d, N, 1, THREE.RedFormat); t.minFilter = t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t; })();
 const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp, ...extra });
 const OUTLINE = new THREE.ShaderMaterial({
   uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTh: { value: 0.022 }, uCol: { value: new THREE.Color('#0a1020') } }]),
@@ -346,18 +362,21 @@ const bakeOne = mesh => bake(new THREE.Group().add(mesh));
 function makeBoard() {
   const sh = new THREE.Shape(), L = 2.2, W = 0.29;
   const halfW = v => v < 0.42 ? lerp(0.62, 1, Math.sin(v / 0.42 * Math.PI / 2)) : Math.pow(Math.max(0, Math.cos((v - 0.42) / 0.58 * Math.PI / 2)), 0.7);
-  const N = 30; const pts = [];
+  const N = 72; const pts = []; // fein genug für eine glatte Umrisslinie
   for (let i = 0; i <= N; i++) { const v = i / N; pts.push([halfW(v) * W, v * L - 0.6]); }
   sh.moveTo(-pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) sh.lineTo(-pts[i][0], pts[i][1]);
   for (let i = pts.length - 2; i >= 0; i--) sh.lineTo(pts[i][0], pts[i][1]);
-  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.035, bevelSegments: 4, curveSegments: 8 });
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.035, bevelSegments: 8, curveSegments: 8 });
   g.rotateX(-Math.PI / 2); g.translate(0, 0.03, 0); // Spitze zeigt nach -Z
   // Nase leicht hochgebogen (Rocker)
   const pa = g.attributes.position;
   for (let i = 0; i < pa.count; i++) { const z = pa.getZ(i); if (z < -0.9) pa.setY(i, pa.getY(i) + Math.pow((-0.9 - z) / 0.7, 2) * 0.13); if (z > 0.45) pa.setY(i, pa.getY(i) + Math.pow((z - 0.45) / 0.2, 2) * 0.02); }
-  g.computeVertexNormals();
-  const deckTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#f6ecd2'; x.fillRect(0, 0, 64, 256); x.fillStyle = '#34a3ec'; x.fillRect(28, 0, 8, 256); x.fillStyle = '#ff6b4a'; x.fillRect(22, 0, 3, 256); x.fillRect(39, 0, 3, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  // weiche Normalen über die runden Kanten (die Geometrie hat je Fläche eigene Punkte): glatte Rails statt Facetten
+  { g.computeVertexNormals(); const na = g.attributes.normal, acc = new Map(), key = i => Math.round(pa.getX(i) * 2e3) + ',' + Math.round(pa.getY(i) * 2e3) + ',' + Math.round(pa.getZ(i) * 2e3);
+    for (let i = 0; i < pa.count; i++) { const k = key(i), v = acc.get(k) || acc.set(k, [0, 0, 0]).get(k); v[0] += na.getX(i); v[1] += na.getY(i); v[2] += na.getZ(i); }
+    for (let i = 0; i < pa.count; i++) { const v = acc.get(key(i)), l = Math.hypot(v[0], v[1], v[2]) || 1; na.setXYZ(i, v[0] / l, v[1] / l, v[2] / l); } }
+  const deckTex = (() => { const [c, x] = hiCanvas(64, 256); x.fillStyle = '#f6ecd2'; x.fillRect(0, 0, 64, 256); x.fillStyle = '#34a3ec'; x.fillRect(28, 0, 8, 256); x.fillStyle = '#ff6b4a'; x.fillRect(22, 0, 3, 256); x.fillRect(39, 0, 3, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   // UV entlang der Länge für den Streifen
   const uv = new Float32Array(pa.count * 2); for (let i = 0; i < pa.count; i++) { uv[i * 2] = pa.getX(i) / (W * 2) + 0.5; uv[i * 2 + 1] = (pa.getZ(i) + 1.6) / 2.2; }
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -372,7 +391,7 @@ const board = bakeOne(makeBoard());
 // Brett aus dem Shop: Deck-Bemalung (und bei Obsidian/Gold ein Leuchtbild) aufs Brett legen
 let boardMat = null; board.traverse(o => { if (o.material && o.material.map) boardMat = o.material; });
 const deckTexCache = new Map();
-function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; deckTexCache.set(c, t); } return t; }
+function deckTex(c) { let t = deckTexCache.get(c); if (!t) { t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MAX_ANISO; deckTexCache.set(c, t); } return t; }
 let boardInfo = Shop.getBoard(Shop.save.board);
 function applyBoard() {
   boardInfo = Shop.getBoard(Shop.save.board); const { deck, glow } = Shop.deckCanvas(boardInfo);
@@ -386,7 +405,7 @@ player.add(board, surfer.root);
 scene.add(player);
 
 // weicher Schatten unter dem Surfer
-const blobTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(0,20,40,.55)'); g.addColorStop(1, 'rgba(0,20,40,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+const blobTex = (() => { const [c, x] = hiCanvas(128, 128); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(0,20,40,.55)'); g.addColorStop(1, 'rgba(0,20,40,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
 const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.6), new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, depthTest: false }));
 blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 
@@ -396,11 +415,16 @@ blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
 const P = { x: 0, lane: 0, fromX: 0, toX: 0, laneT: 1, z: 0, y: 0, vy: 0, air: false, airT: 0, speed: 14, lean: 0, landT: 0, alive: true, trick: null, trickT: 0, flinch: 0, duck: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-const poseState = { t: 0, dt: 0, lean: 0, air: false, airT: 0, kite: false, landT: 0, duck: 0, trick: null, trickT: 0 };
+const poseState = { t: 0, dt: 0, lean: 0, air: false, airT: 0, vy: 0, speed: 14, kite: false, duck: 0, trick: null, trickT: 0, idle: false, crashT: -1, wet: false, rot: 0, coins: 0, pw: 0, bump: 0 };
 function pose(t, dt) {
   const st = poseState;
-  st.t = t; st.dt = dt; st.lean = P.lean; st.air = P.air; st.airT = P.airT; st.kite = pw.kite > 0 && state === 'play'; st.landT = P.landT;
+  st.t = t; st.dt = dt; st.lean = P.lean; st.air = P.air; st.airT = P.airT; st.vy = P.vy; st.speed = P.speed; st.kite = pw.kite > 0 && state === 'play';
   st.duck = P.duck > 0 ? smooth01((DUCK_T - P.duck) / 0.1) * smooth01(P.duck / 0.15) : 0; st.trick = P.trick; st.trickT = P.trickT;
+  st.idle = state === 'ready'; st.crashT = state === 'crash' ? crashT : -1; st.wet = !!CR.wet; st.rot = CR.rot;
+  // kurze Reaktionen: Münze, Power-up, am Rand angestoßen
+  if (runCoins > st.coins) surfer.react('coin'); st.coins = runCoins;
+  const pwSum = pw.magnet + pw.shield + pw.kite; if (pwSum > st.pw + 0.5) surfer.react('power'); st.pw = pwSum;
+  const bump = P.bump || 0; if (bump && !st.bump) surfer.react('bump', Math.sign(bump)); st.bump = bump;
   surfer.pose(st);
 }
 
@@ -408,7 +432,7 @@ function pose(t, dt) {
    Welt: Inseln mit Palmen, Berge, Bojen, Hindernisse, Münzen
    ========================================================================= */
 const frondTex = (() => {
-  const c = document.createElement('canvas'); c.width = 128; c.height = 512; const x = c.getContext('2d');
+  const [c, x] = hiCanvas(128, 512);
   x.strokeStyle = '#ffffff'; x.lineCap = 'round';
   x.lineWidth = 7; x.beginPath(); x.moveTo(64, 0); x.lineTo(64, 512); x.stroke();
   for (let i = 0; i < 34; i++) { const y = 10 + i * 14.5, l = 58 * Math.sin((i + 2) / 37 * Math.PI) + 6; x.lineWidth = 9 - i * 0.12;
@@ -506,15 +530,24 @@ function updateMountains() {
 
 // Bojenleinen am Rand des Spielbereichs
 const BUOY_N = 70;
-const buoys = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 12, 8), toon('#ffffff'), BUOY_N * 2);
+const buoys = new THREE.InstancedMesh(new THREE.SphereGeometry(0.15, 16, 10).scale(1, 0.72, 1.25), toon('#ffffff'), BUOY_N * 2);
 buoys.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BUOY_N * 2 * 3), 3);
 { const cR = new THREE.Color('#ff4a3a'), cW = new THREE.Color('#ffffff'); for (let i = 0; i < BUOY_N * 2; i++) buoys.setColorAt(i, (i >> 1) % 2 ? cR : cW); }
 buoys.frustumCulled = false; scene.add(buoys);
+// Leine zwischen den Bojen, hängt leicht durch
+const ROPE_SUB = 3, ropePos = new Float32Array(2 * ((BUOY_N - 1) * ROPE_SUB + 1) * 3), ropeGeo = new THREE.BufferGeometry();
+ropeGeo.setAttribute('position', new THREE.BufferAttribute(ropePos, 3).setUsage(THREE.DynamicDrawUsage));
+{ const idx = [], n = (BUOY_N - 1) * ROPE_SUB + 1; for (let sd = 0; sd < 2; sd++) for (let i = 0; i < n - 1; i++) idx.push(sd * n + i, sd * n + i + 1); ropeGeo.setIndex(idx); }
+const rope = new THREE.LineSegments(ropeGeo, new THREE.LineBasicMaterial({ color: '#f4e2b8', transparent: true, opacity: 0.85 })); rope.frustumCulled = false; scene.add(rope);
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
 function updateBuoys() {
   const z0 = Math.floor(P.z / 2.5) * 2.5 + 8;
   for (let i = 0; i < BUOY_N; i++) { const z = z0 - i * 2.5; for (const sd of [0, 1]) { const x = sd ? EDGE : -EDGE; _p.set(x, waveH(x, z, 3) + 0.05, z); _m4.compose(_p, _q, _s); buoys.setMatrixAt(i * 2 + sd, _m4); } }
   buoys.instanceMatrix.needsUpdate = true;
+  const n = (BUOY_N - 1) * ROPE_SUB + 1;
+  for (let sd = 0; sd < 2; sd++) { const x = sd ? EDGE : -EDGE; for (let j = 0; j < n; j++) { const z = z0 - j * 2.5 / ROPE_SUB, f = (j % ROPE_SUB) / ROPE_SUB, o = (sd * n + j) * 3;
+    ropePos[o] = x; ropePos[o + 1] = waveH(x, z, 3) + 0.05 - Math.sin(f * Math.PI) * 0.05; ropePos[o + 2] = z; } }
+  ropeGeo.attributes.position.needsUpdate = true;
 }
 
 // Hindernisse
@@ -534,7 +567,7 @@ const ROCKS = [0, 1, 2, 3].map(s => bakeOne(makeRockMesh(100 + s, 1.25, 1.8, 1.1
 const LOG = (() => { const g = new THREE.Group(); const body = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 2.3, 12), toon('#8a5a32')), 0.03); body.rotation.z = Math.PI / 2; g.add(body);
   for (const sd of [-1, 1]) { const end = new THREE.Mesh(new THREE.CircleGeometry(0.32, 14), toon('#e0b47a')); end.position.x = sd * 1.16; end.rotation.y = sd * Math.PI / 2; g.add(end); }
   const br = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.7, 6), toon('#7a4e2a')), 0.02); br.position.set(0.4, 0.35, 0); br.rotation.z = -0.6; g.add(br); return g; })();
-const foamTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+const foamTex = (() => { const [c, x] = hiCanvas(128, 128);
   const g = x.createRadialGradient(64, 64, 22, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.35, 'rgba(255,255,255,.95)'); g.addColorStop(.55, 'rgba(235,250,255,.55)'); g.addColorStop(1, 'rgba(235,250,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 60; i++) { const a = Math.random() * TAU, r = 30 + Math.random() * 26; x.fillStyle = 'rgba(255,255,255,.7)'; x.beginPath(); x.arc(64 + Math.cos(a) * r, 64 + Math.sin(a) * r, 2 + Math.random() * 4, 0, TAU); x.fill(); }
@@ -558,7 +591,7 @@ const ARCH = (() => {
   return g;
 })();
 // Meeresschildkröte: flacher Panzer mit Wabenmuster, paddelnde Flossen
-const shellTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#6b7a2e'; x.fillRect(0, 0, 128, 128);
+const shellTex = (() => { const [c, x] = hiCanvas(128, 128); x.fillStyle = '#6b7a2e'; x.fillRect(0, 0, 128, 128);
   x.strokeStyle = '#3e4a18'; x.lineWidth = 4; x.fillStyle = '#8a9a3c';
   for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) { const cx = i * 30 + (j % 2) * 15 - 4, cy = j * 26 + 6; x.beginPath(); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + Math.PI / 6; x.lineTo(cx + Math.cos(a) * 13, cy + Math.sin(a) * 13); } x.closePath(); x.fill(); x.stroke(); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
@@ -577,7 +610,7 @@ function makeTurtle() {
   return g; // Flossen werden beim Klonen neu gesucht (keine Objekte in userData, die würden beim Klonen serialisiert)
 }
 const TURTLE = makeTurtle();
-const stripeTex = (cols, n, w = 16, h = 128, vertical = false) => { const c = document.createElement('canvas'); c.width = vertical ? h : w; c.height = vertical ? w : h; const x = c.getContext('2d');
+const stripeTex = (cols, n, w = 16, h = 128, vertical = false) => { const [c, x] = hiCanvas(vertical ? h : w, vertical ? w : h);
   for (let i = 0; i < n; i++) { x.fillStyle = cols[i % cols.length]; if (vertical) x.fillRect(i * h / n, 0, h / n + 1, w); else x.fillRect(0, i * h / n, w, h / n + 1); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
 // Motorboot: kommt in seiner Spur entgegen – nur ausweichen hilft
@@ -639,7 +672,7 @@ const JETTY = (() => {
   const g = new THREE.Group(), wood = toon('#9a6b3d'), woodD = toon('#7a5230');
   for (const sd of [-1, 1]) { const post = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 3, 10), woodD), 0.025); post.position.set(sd * 1.18, 0.6, 0); g.add(post);
     const cap2 = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.08, 10), wood); cap2.position.set(sd * 1.18, 2.12, 0); g.add(cap2); }
-  const beamTex = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 32; const x = c.getContext('2d'); x.fillStyle = '#ffd23f'; x.fillRect(0, 0, 256, 32);
+  const beamTex = (() => { const [c, x] = hiCanvas(256, 32); x.fillStyle = '#ffd23f'; x.fillRect(0, 0, 256, 32);
     x.fillStyle = '#1d2636'; for (let i = -2; i < 18; i++) { x.beginPath(); x.moveTo(i * 18, 32); x.lineTo(i * 18 + 9, 32); x.lineTo(i * 18 + 25, 0); x.lineTo(i * 18 + 16, 0); x.fill(); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const beam = withOutline(new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.34, 0.4), [wood, wood, wood, wood, toon('#ffffff', { map: beamTex }), wood]), 0.025); beam.position.y = 1.82; g.add(beam);
@@ -654,7 +687,7 @@ const RAMP = (() => {
   const g = new THREE.Group();
   const sh = new THREE.Shape(); sh.moveTo(-2, 0); sh.lineTo(-2, 0.06); sh.lineTo(2, 1.15); sh.lineTo(2, 0); sh.lineTo(-2, 0);
   const rg = new THREE.ExtrudeGeometry(sh, { depth: 2.2, bevelEnabled: false }); rg.rotateY(Math.PI / 2); rg.translate(-1.1, 0, 0);
-  const plank = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#c58a4f'; x.fillRect(0, 0, 64, 256);
+  const plank = (() => { const [c, x] = hiCanvas(64, 256); x.fillStyle = '#c58a4f'; x.fillRect(0, 0, 64, 256);
     x.fillStyle = '#9a6634'; for (let i = 0; i < 256; i += 32) x.fillRect(0, i, 64, 3);
     x.fillStyle = '#ffd23f'; for (let i = 0; i < 3; i++) { const y = 40 + i * 70; x.beginPath(); x.moveTo(10, y + 26); x.lineTo(32, y); x.lineTo(54, y + 26); x.lineTo(44, y + 26); x.lineTo(32, y + 12); x.lineTo(20, y + 26); x.fill(); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
@@ -837,7 +870,7 @@ function updateCanyon(dt) {
 // Münzen: geprägter Goldtaler mit erhabenem Rand und Stern, Cartoon-Kontur und wanderndem Glanzstreif (eine Instanz-Gruppe)
 const COIN_N = 320, COIN_R = 0.4, COIN_POP = 0.24;
 const coinTex = (() => {
-  const S = 256, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const S = 256, m = S / 2, [c, x] = hiCanvas(S, S);
   const disc = (r, fill) => { x.fillStyle = fill; x.beginPath(); x.arc(m, m, r, 0, TAU); x.fill(); };
   const rg = (r0, r1, a, b, ox, oy) => { const g = x.createRadialGradient(m + ox, m + oy, r0, m, m, r1); g.addColorStop(0, a); g.addColorStop(1, b); return g; };
   x.fillStyle = '#b86f00'; x.fillRect(0, 0, S, S);                       // Kante (der schmale Außenring landet auf der Münzkante)
@@ -847,7 +880,7 @@ const coinTex = (() => {
   const star = (ox, oy, r, fill) => { x.fillStyle = fill; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.46 : r; x.lineTo(m + ox + Math.cos(a) * rr, m + oy + Math.sin(a) * rr); } x.closePath(); x.fill(); };
   star(5, 6, m * 0.5, '#b97500'); star(-3, -3, m * 0.5, '#fff8d0'); star(0, 0, m * 0.47, '#ffc928'); // geprägt: Schatten, Licht, Fläche
   x.fillStyle = 'rgba(255,255,255,.8)'; x.beginPath(); x.ellipse(m * 0.52, m * 0.46, m * 0.13, m * 0.055, -0.75, 0, TAU); x.fill();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MAX_ANISO; return t;
 })();
 const coinGeo = (() => {
   const R = COIN_R, T = 0.065, F = 0.04, V = (r, y) => new THREE.Vector2(r, y);
@@ -882,7 +915,7 @@ const coinOutline = new THREE.InstancedMesh(coinGeo, new THREE.ShaderMaterial({
 coinOutline.instanceMatrix = coinMesh.instanceMatrix; coinOutline.frustumCulled = false; scene.add(coinOutline);
 // Lichtblitz beim Einsammeln: weicher Schein mit Strahlen (einige Sprites, werden reihum vergeben)
 const flashTex = (() => {
-  const S = 128, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  const S = 128, m = S / 2, [c, x] = hiCanvas(S, S);
   const g = x.createRadialGradient(m, m, 0, m, m, m); g.addColorStop(0, 'rgba(255,255,235,1)'); g.addColorStop(0.18, 'rgba(255,236,150,.85)'); g.addColorStop(0.45, 'rgba(255,200,60,.25)'); g.addColorStop(1, 'rgba(255,190,40,0)');
   x.fillStyle = g; x.fillRect(0, 0, S, S);
   x.translate(m, m); x.fillStyle = 'rgba(255,248,200,.9)';
@@ -937,7 +970,7 @@ function clearFlyers() { for (const f of flyers) { f.el.hidden = true; flyPool.p
 const PW = { magnet: { dur: 10, col: '#ff5a6e' }, shield: { dur: 15, col: '#5fd0ff' }, kite: { dur: 6, col: '#ffcc33' } };
 const pw = { magnet: 0, shield: 0, kite: 0, grace: 0 };
 function iconTex(type) {
-  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const [c, x] = hiCanvas(128, 128);
   x.lineCap = x.lineJoin = 'round'; x.translate(64, 64);
   if (type === 'magnet') {
     x.lineWidth = 30; x.strokeStyle = '#0d2a4a'; x.beginPath(); x.arc(0, -4, 30, Math.PI, 0); x.lineTo(30, 34); x.moveTo(-30, -4); x.lineTo(-30, 34); x.stroke();
@@ -982,7 +1015,7 @@ shieldMesh.visible = false; scene.add(shieldMesh);
 // Drachen: bunter Lenkdrachen mit Leinen zu den Händen
 const kite = (() => {
   const g = new THREE.Group();
-  const kc = document.createElement('canvas'); kc.width = 256; kc.height = 128; const x = kc.getContext('2d');
+  const [kc, x] = hiCanvas(256, 128);
   ['#ff4d4d', '#ffcc33', '#ffffff', '#2fa3ff', '#ffffff', '#ffcc33', '#ff4d4d'].forEach((c, i) => { x.fillStyle = c; x.fillRect(i * 256 / 7, 0, 256 / 7 + 1, 128); });
   const kt = new THREE.CanvasTexture(kc); kt.colorSpace = THREE.SRGBColorSpace;
   const sh = new THREE.Shape(); sh.moveTo(-1.7, 0.2); sh.bezierCurveTo(-1.4, 1.1, 1.4, 1.1, 1.7, 0.2); sh.bezierCurveTo(1.1, 0.55, -1.1, 0.55, -1.7, 0.2);
@@ -1143,7 +1176,7 @@ function makeSailboat(stripe) {
   const hull = withOutline(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 3.2, 4, 10).rotateX(Math.PI / 2).scale(1, 0.5, 1), toon('#f4f1e8')), 0.03); hull.position.y = 0.1; g.add(hull);
   const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 3.2), toon('#b07a4a')); deck.position.y = 0.42; g.add(deck);
   const mast = withOutline(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 6.5, 6), toon('#e8e2d4')), 0.02); mast.position.set(0, 3.6, -0.4); g.add(mast);
-  const sc = document.createElement('canvas'); sc.width = 64; sc.height = 128; const x = sc.getContext('2d'); x.fillStyle = '#fbfaf5'; x.fillRect(0, 0, 64, 128); x.fillStyle = stripe; x.fillRect(0, 70, 64, 18); x.fillRect(0, 96, 64, 8);
+  const [sc, x] = hiCanvas(64, 128); x.fillStyle = '#fbfaf5'; x.fillRect(0, 0, 64, 128); x.fillStyle = stripe; x.fillRect(0, 70, 64, 18); x.fillRect(0, 96, 64, 8);
   const st = new THREE.CanvasTexture(sc); st.colorSpace = THREE.SRGBColorSpace;
   const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0, 6); sh.quadraticCurveTo(1.4, 2.6, 2.6, 0); sh.lineTo(0, 0);
   const sg = new THREE.ShapeGeometry(sh); const uv = sg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 2.6, uv.getY(i) / 6);
@@ -1175,7 +1208,7 @@ const partMat = new THREE.ShaderMaterial({
       // dicht vor der Kamera ausblenden und Größe begrenzen – sonst blitzen riesige Flecken übers Bild
       vC.a *= smoothstep(1.2, 3., z);
       gl_PointSize = min(size * uScale / z, uScale * .06); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `varying vec4 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = length(d); float a = smoothstep(.5, .2, r); vec3 c = vC.rgb + (1. - smoothstep(0., .35, length(d + vec2(.12, .12)))) * .25; gl_FragColor = vec4(c, a * vC.a);
+  fragmentShader: `varying vec4 vC; void main(){ vec2 d = gl_PointCoord - .5; float r = length(d); float a = exp(-r * r * 14.) * smoothstep(.5, .38, r); vec3 c = vC.rgb * (.88 + .12 * smoothstep(.5, 0., length(d - vec2(.1, .1)))) + (1. - smoothstep(0., .3, length(d + vec2(.13, .13)))) * .3; gl_FragColor = vec4(c, a * vC.a);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     }`,
@@ -1208,6 +1241,29 @@ function updateParts(dt) {
   }
   partGeo.setDrawRange(0, partCount);
   for (const a of PART_ATTRS) partGeo.attributes[a].needsUpdate = true;
+}
+
+/* ---------- Fahrtwind: feine Luftstreifen, die mit dem Tempo deutlicher werden ---------- */
+const WIND_N = 30, windGeo = new THREE.BufferGeometry(), wiPos = new Float32Array(WIND_N * 6), wiA = new Float32Array(WIND_N * 2), winds = [];
+windGeo.setAttribute('position', new THREE.BufferAttribute(wiPos, 3).setUsage(THREE.DynamicDrawUsage));
+windGeo.setAttribute('alpha', new THREE.BufferAttribute(wiA, 1).setUsage(THREE.DynamicDrawUsage));
+const windMat = new THREE.ShaderMaterial({ uniforms: { uO: { value: 0 } },
+  vertexShader: `attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: `uniform float uO; varying float vA; void main(){ gl_FragColor = vec4(1., 1., 1., vA * uO); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+const windLines = new THREE.LineSegments(windGeo, windMat); windLines.frustumCulled = false; windLines.renderOrder = 4; scene.add(windLines);
+function placeWind(w, z) { const a = rand(TAU), r = rand(2.2, 7); w.x = Math.cos(a) * r * 1.3; w.y = 1.8 + Math.sin(a) * r * 0.55; w.z = z; w.a = rand(0.25, 0.7); w.l = rand(0.6, 1.4); }
+for (let i = 0; i < WIND_N; i++) { const w = {}; placeWind(w, rand(-40, 6)); winds.push(w); }
+function updateWind(dt) {
+  const k = state === 'play' ? clamp((P.speed - 15) / 13, 0, 1) : 0, flyK = pw.kite > 0 && state === 'play' ? 1 : 0;
+  windMat.uniforms.uO.value = damp(windMat.uniforms.uO.value, Math.max(k, flyK) * (tier === 0 ? 0.3 : 0.45), 3, dt);
+  windLines.visible = windMat.uniforms.uO.value > 0.01; if (!windLines.visible) return;
+  const len = 1.2 + P.speed * 0.12;
+  winds.forEach((w, i) => { if (w.z > 7) placeWind(w, rand(-45, -25)); w.z += P.speed * dt * 0.35; // relativ zum Surfer, kommt schneller entgegen
+    const x = P.x * 0.6 + w.x, y = P.y * 0.4 + w.y, z = P.z + w.z, o = i * 6;
+    wiPos[o] = x; wiPos[o + 1] = y; wiPos[o + 2] = z - len * w.l; wiPos[o + 3] = x; wiPos[o + 4] = y; wiPos[o + 5] = z;
+    const fade = smooth01((w.z + 45) / 12) * smooth01((7 - w.z) / 4); wiA[i * 2] = 0; wiA[i * 2 + 1] = w.a * fade; });
+  windGeo.attributes.position.needsUpdate = windGeo.attributes.alpha.needsUpdate = true;
 }
 
 /* ---------- Kielwelle: zwei Schaumbänder, folgen der gefahrenen Linie ---------- */
@@ -1469,6 +1525,9 @@ function update(dt) {
     if (!P.air) {
       const n = Math.floor(rand(2, 4) + P.speed * 0.1);
       for (let i = 0; i < n; i++) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.3, P.y + 0.04, P.z + rand(0.1, 0.8), sd * rand(1.2, 3.6) - P.lean * 2.5, rand(1.4, 3.6), rand(-P.speed * 0.15, 0.5), rand(0.3, 0.55), rand(0.05, 0.11), sprayCol()); }
+      // Kurve: Gischtfahne fliegt zur Außenseite hoch
+      const carve = Math.abs(P.lean); if (state === 'play' && carve > 0.18) { const sd = -Math.sign(P.lean), m = Math.floor(carve * 9 * Math.min(partCap / PART_N * 1.5, 1));
+        for (let i = 0; i < m; i++) addPart(P.x + sd * rand(0.2, 0.45), P.y + 0.08, P.z + rand(0.2, 0.9), sd * rand(2.5, 6) * carve, rand(2.5, 5.5) * (0.5 + carve), rand(-P.speed * 0.25, 0.3), rand(0.35, 0.7), rand(0.07, 0.16), i % 3 ? '#ffffff' : '#d8f6ff'); }
       if (Math.random() < 0.6) { const sd = Math.random() < 0.5 ? -1 : 1; addPart(P.x + sd * 0.4, P.y + 0.15, P.z + rand(0.3, 1), sd * rand(0.5, 1.5), rand(0.5, 1.2), rand(-P.speed * 0.2, 0), rand(0.5, 0.9), rand(0.25, 0.45), '#eafcff', 2); }
     }
     if (play) {
@@ -1533,7 +1592,7 @@ function syncScene(dt) {
     player.rotation.y = -P.lean * 0.25 + spin;
     pose(time, dt);
   } else {
-    surfer.root.position.copy(CR.body); surfer.root.rotation.set(CR.wet ? -CR.rot : CR.rot * 0.7, 0, CR.wet ? Math.sin(time * 3) * 0.15 : CR.rot); board.position.copy(CR.board); if (CR.wet) pose(time, dt);
+    surfer.root.position.copy(CR.body); board.position.copy(CR.board); pose(time, dt); // Sturz: surfer.js dreht und bewegt ihn
     player.rotation.set(0, 0, 0);
   }
   shieldMesh.visible = pw.shield > 0 && state === 'play' && (pw.shield > 2 || Math.floor(time * 8) % 2 === 0);
@@ -1564,7 +1623,7 @@ function syncScene(dt) {
   }
   for (let i = nf; i < coinFlashes.length; i++) coinFlashes[i].visible = false;
   coinMesh.count = coinOutline.count = n; coinMesh.instanceMatrix.needsUpdate = true; _s.set(1, 1, 1);
-  updateBuoys(); updateWake();
+  updateBuoys(); updateWake(); updateWind(dt);
   // Wasser und ferne Kulisse folgen der Kamera
   water.position.set(Math.round(P.x / 0.5) * 0.5, 0, Math.round(P.z / 0.5) * 0.5);
   sky.position.copy(camera.position);
@@ -1589,6 +1648,7 @@ function syncScene(dt) {
   }
   if (shake > 0) { camera.position.x += (Math.sin(time * 61) + Math.sin(time * 37)) * shake * 0.08; camera.position.y += (Math.sin(time * 53) + Math.sin(time * 29)) * shake * 0.08; }
   camera.lookAt(camState.look);
+  camState.roll = damp(camState.roll || 0, state === 'play' ? -P.lean * 0.05 : 0, 6, dt); camera.rotateZ(camState.roll);
   if (window.surf3d && surf3d.camOverride) { const o = surf3d.camOverride, l = surf3d.lookOverride; camera.position.set(P.x + o[0], P.y + o[1], P.z + o[2]);
     if (surf3d.lookAtGull) camera.lookAt(gulls[0].m.position); else if (l) camera.lookAt(P.x + l[0], l[1], P.z + l[2]); else camera.lookAt(P.x, P.y + 1.0, P.z); }
   const fovT = lerp(76, 58, ka) + clamp((P.speed - 14) / 16, 0, 1) * 6;
@@ -1706,7 +1766,7 @@ function warmUp() {
   renderer.setRenderTarget(null);
   const tex = new Set();
   for (const root of [scene, tmp]) root.traverse(o => { if (o.material) for (const m of [].concat(o.material)) for (const k of ['map', 'gradientMap', 'alphaMap']) if (m[k]) tex.add(m[k]); });
-  for (const t of tex) renderer.initTexture(t);
+  for (const t of tex) { if (t !== toonRamp && !t.isDataTexture) { t.anisotropy = MAX_ANISO; t.needsUpdate = true; } renderer.initTexture(t); } // scharf auch flach von der Seite gesehen
 }
 applyTier();
 resize();

@@ -21,37 +21,80 @@ a{position:fixed;top:12px;right:14px;color:#fff}
 <script type="module">
 import * as THREE from './vendor/three.min.js';
 import { loadSurfer } from './surfer.js';
+const Q = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 3)); renderer.toneMapping = THREE.NeutralToneMapping;
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
 scene.add(new THREE.HemisphereLight('#cfeeff', '#1a6f8c', 1.15));
 const sun = new THREE.DirectionalLight('#fff1d6', 2.4); sun.position.set(3, 6, 4); scene.add(sun);
 const fill = new THREE.DirectionalLight('#9fd8ff', 0.9); fill.position.set(-4, 3, -6); scene.add(fill);
-const ramp = new THREE.DataTexture(new Uint8Array([70, 140, 205, 255]), 4, 1, THREE.RedFormat); ramp.minFilter = ramp.magFilter = THREE.NearestFilter; ramp.needsUpdate = true;
-const s = await loadSurfer('./models/surfer.glb', { gradientMap: ramp });
-scene.add(s.root);
-const deck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.06, 40).scale(1, 1, 3.2), new THREE.MeshToonMaterial({ color: '#f6ecd2', gradientMap: ramp }));
-deck.position.y = 0.06; scene.add(deck);
-const POSES = { Stehen: null, Surfen: {}, Kurve: { lean: 0.8 }, Ducken: { duck: 1 }, Sprung: { air: true, airT: 0.5 }, Shaka: { air: true, airT: 0.5, trick: 'shaka', trickT: 0.27 }, Grab: { air: true, airT: 0.5, trick: 'grab', trickT: 0.27 } };
-let cur = new URLSearchParams(location.search).get('pose') || 'Surfen', yaw = +(new URLSearchParams(location.search).get('yaw') || 0.6), auto = !new URLSearchParams(location.search).has('yaw');
+const s = await loadSurfer('./models/surfer.glb');
+const rider = new THREE.Group(); scene.add(rider); rider.add(s.root);
+const deckGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.06, 64, 1).scale(1, 1, 3.2);
+const deck = new THREE.Mesh(deckGeo, new THREE.MeshToonMaterial({ color: '#f6ecd2' }));
+deck.position.y = 0.06; rider.add(deck);
+// Jede Pose ist ein kleiner Ablauf wie im Spiel (Zeit läuft in Schleife), damit man die Bewegung sieht
+const JUMP_V = 11, GRAV = 30;
+const POSES = {
+  Stehen: null,
+  Surfen: { len: 8, idle: true, lean: u => Math.cos(u * 0.5) * 0.35 },
+  Kurve: { len: 2.4, lane: [[0.3, 1], [1.5, -1]] },
+  Ducken: { len: 2.6, duck: [0.5, 1.5] },
+  Sprung: { len: 2.2, jump: 0.5 },
+  Shaka: { len: 2.2, jump: 0.5, trick: 'shaka' },
+  Grab: { len: 2.2, jump: 0.5, trick: 'grab', v: 13.5 },
+  Münze: { len: 2, coins: [0.4, 0.55, 0.7, 0.85, 1.0] },
+  Jubel: { len: 2.4, power: 0.5 },
+  Drachen: { len: 6, kite: true },
+  Sturz: { len: 4.5, crash: 0.6 },
+};
+let cur = Q.get('pose') || 'Surfen', yaw = +(Q.get('yaw') || 0.6), auto = !Q.has('yaw'), freeze = Q.has('at') ? +Q.get('at') : -1;
 const bar = document.getElementById('bar');
-for (const k in POSES) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => { cur = k; sync(); }; bar.appendChild(b); }
+for (const k in POSES) { const b = document.createElement('button'); b.textContent = k; b.onclick = () => { cur = k; restart(); sync(); }; bar.appendChild(b); }
 const sync = () => [...bar.children].forEach(b => b.classList.toggle('on', b.textContent === cur)); sync();
 let drag = null; canvas.onpointerdown = e => { drag = e.clientX; auto = false; }; onpointerup = () => drag = null;
 onpointermove = e => { if (drag !== null) { yaw -= (e.clientX - drag) * 0.01; drag = e.clientX; } };
-const dist = +(new URLSearchParams(location.search).get('dist') || 5.2), lookY = +(new URLSearchParams(location.search).get('y') || 1.0);
-let last = performance.now(), t = 0;
+const dist = +(Q.get('dist') || 5.2), lookY = +(Q.get('y') || 1.0);
+const st = { t: 0, dt: 0, lean: 0, air: false, airT: 0, vy: 0, speed: 16, kite: false, duck: 0, trick: null, trickT: 0, idle: false, crashT: -1, wet: false, rot: 0 };
+const sim = { u: 0, y: 0, x: 0, done: {}, cy: 0, cvy: 0 };
+function restart() { sim.u = 0; sim.y = 0; sim.x = 0; sim.done = {}; Object.assign(st, { lean: 0, air: false, airT: 0, vy: 0, duck: 0, trick: null, trickT: 0, crashT: -1, wet: false, rot: 0, idle: false }); s.root.position.set(0, 0, 0); deck.visible = true; }
+const once = (k, at) => sim.u >= at && !sim.done[k] && (sim.done[k] = true);
+function step(dt) {
+  const p = POSES[cur]; st.t += dt; st.dt = dt; if (!p) return;
+  if (freeze >= 0 && sim.u >= freeze) { st.dt = 0; return; }
+  sim.u += dt; if (sim.u >= p.len && freeze < 0) restart();
+  const u = sim.u; st.idle = !!p.idle; st.kite = !!p.kite; if (st.kite) st.air = true;
+  let lean = p.lean ? p.lean(st.t) : 0;
+  if (p.lane) { let tx = 0; for (const [at, d] of p.lane) if (u >= at) tx = d * 0.9; const px = sim.x; sim.x += (tx - sim.x) * (1 - Math.exp(-dt * 22)); lean = Math.max(-1, Math.min(1, (sim.x - px) / Math.max(dt, 1e-4) / 6)); }
+  st.lean += (lean - st.lean) * (1 - Math.exp(-dt * 14));
+  if (p.duck) { const [a, b] = p.duck, k = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }; st.duck = k((u - a) / 0.1) * k((b - u) / 0.15); }
+  if (p.jump !== undefined && once('jump', p.jump)) { st.air = true; st.vy = p.v || JUMP_V; st.airT = 0; st.trick = p.trick || null; st.trickT = 0; }
+  if (st.air) { st.airT += dt; st.trickT += dt; st.vy -= GRAV * (Math.abs(st.vy) < 2.5 ? 0.55 : 1) * dt; sim.y += st.vy * dt; if (sim.y <= 0 && st.vy < 0) { sim.y = 0; st.air = false; st.vy = 0; st.trick = null; } }
+  if (p.coins) p.coins.forEach((at, i) => { if (once('c' + i, at)) s.react('coin'); });
+  if (p.power !== undefined && once('pw', p.power)) s.react('power');
+  if (p.crash !== undefined && u >= p.crash) { // wie im Spiel: hochgeschleudert, dann ins Wasser
+    if (once('cr', p.crash)) { st.crashT = 0; st.rot = 0; st.wet = false; sim.cy = 0; sim.cvy = 5.5; deck.visible = false; }
+    st.crashT += dt; sim.cvy -= 18 * dt; sim.cy += sim.cvy * dt;
+    if (sim.cy < -0.55) { sim.cy = -0.55; st.wet = true; st.rot += (Math.PI / 2 - st.rot) * (1 - Math.exp(-dt * 4)); } else st.rot += dt * 7;
+    s.root.position.y = sim.cy;
+  }
+  rider.position.y = sim.y;
+}
+let last = performance.now(), camY = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt; if (auto) yaw += dt * 0.35;
-  const p = POSES[cur]; if (p) s.pose({ t, dt, ...p }); else s.rest();
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; if (auto) yaw += dt * 0.35;
+  step(dt);
+  if (POSES[cur]) s.pose(st); else s.rest();
   const w = innerWidth, h = innerHeight; if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
-  camera.position.set(Math.sin(yaw) * dist, lookY + 0.35, Math.cos(yaw) * dist); camera.lookAt(0, lookY, 0);
+  camY += (rider.position.y * 0.85 - camY) * (1 - Math.exp(-dt * 6));
+  camera.position.set(Math.sin(yaw) * dist, lookY + camY + 0.35, Math.cos(yaw) * dist); camera.lookAt(0, lookY + camY, 0);
   renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.viewer = { s, set: (k, y) => { cur = k; if (y !== undefined) { yaw = y; auto = false; } sync(); } };
+// zum Ausprobieren in der Konsole: viewer.set('Grab', 2.2), ?pose=Grab&yaw=2.2&at=0.9 hält den Ablauf bei 0,9 s an
+window.viewer = { s, st, sim, set: (k, y) => { cur = k; restart(); if (y !== undefined) { yaw = y; auto = false; } sync(); } };
 </script>
 </body>
 </html>
